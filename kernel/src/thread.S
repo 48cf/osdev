@@ -28,9 +28,6 @@ _do_context_switch:
 .global _enter_userspace
 .type _enter_userspace,"function"
 _enter_userspace:
-   mov $0x23, %ax
-   mov %ax, %es
-   mov %ax, %ds
    swapgs
    iretq
 .size _enter_userspace, .-_enter_userspace

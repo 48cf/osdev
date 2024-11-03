@@ -30,7 +30,7 @@ extern void
 _ltr(uint16_t selector);
 
 extern void
-_reload_segments(uint16_t cs, uint16_t ds);
+_reload_segments(uint16_t cs);
 
 extern uintptr_t _isr_handlers[256];
 
@@ -111,18 +111,19 @@ static void
 setup_gdt(struct cpu* cpu)
 {
    uint64_t tss_address = (uint64_t)&cpu->tss;
-   uint64_t tss_low = 0x0000890000000068;
+   uint64_t tss_low = 0x0000890000000000;
    uint64_t tss_high = tss_address >> 32;
 
+   tss_low |= sizeof(cpu->tss) - 1;
    tss_low |= (tss_address & 0xffff) << 16;
    tss_low |= ((tss_address >> 16) & 0xff) << 32;
    tss_low |= ((tss_address >> 24) & 0xff) << 56;
 
    cpu->gdt[0] = 0;                  // null descriptor
-   cpu->gdt[1] = 0x00af9b000000ffff; // code segment
-   cpu->gdt[2] = 0x00af93000000ffff; // data segment
-   cpu->gdt[3] = 0x00affb000000ffff; // user code segment
-   cpu->gdt[4] = 0x00aff3000000ffff; // user data segment
+   cpu->gdt[1] = 0x00209b0000000000; // code segment
+   cpu->gdt[2] = 0x0020930000000000; // data segment
+   cpu->gdt[3] = 0x0020fb0000000000; // user code segment
+   cpu->gdt[4] = 0x0020f30000000000; // user data segment
    cpu->gdt[5] = tss_low;            // tss (low)
    cpu->gdt[6] = tss_high;           // tss (high)
 }
@@ -183,7 +184,7 @@ cpu_init_early(void)
 
    _lgdt(&gdtr);
    _lidt(&idtr);
-   _reload_segments(SEL_CS64, SEL_DS64);
+   _reload_segments(SEL_CS64);
    _ltr(SEL_TSS);
 }
 

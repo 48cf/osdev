@@ -54,11 +54,12 @@ _ltr:
 .type _reload_segments,"function"
 _reload_segments:
    swapgs
-   mov %si, %ds
-   mov %si, %es
-   mov %si, %fs
-   mov %si, %gs
-   mov %si, %ss
+   xor %ax, %ax
+   mov %ax, %ds
+   mov %ax, %es
+   mov %ax, %fs
+   mov %ax, %gs
+   mov %ax, %ss
    pushq $8
    pushq $1f
    lretq
