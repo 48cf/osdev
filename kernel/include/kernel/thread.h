@@ -29,10 +29,10 @@ struct thread
    struct thread_context context;
 };
 
-void
+int
 thread_init(struct thread* thread);
 
-void
+int
 thread_init_context(struct thread* thread, bool is_user, void (*entry)(void*), void* arg);
 
 void

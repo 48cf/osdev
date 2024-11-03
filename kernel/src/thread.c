@@ -1,4 +1,5 @@
 #include <kernel/alloc.h>
+#include <kernel/errno.h>
 #include <kernel/intrin.h>
 #include <kernel/mm.h>
 #include <kernel/mmu.h>
@@ -18,28 +19,51 @@ get_stack_top(struct page* stack_page)
    return mm_get_page_address(stack_page) + mm_get_page_size(stack_page) + hhdm_offset;
 }
 
-void
+int
 thread_init(struct thread* thread)
 {
+   int result = 0;
+
    struct page* stack_page = mm_alloc_page(4); // 1<<(12+4) = 64 KiB
    struct page* user_stack_page = mm_alloc_page(4);
 
-   assert(stack_page != NULL);
+   if (stack_page == NULL || user_stack_page == NULL) {
+      result = -ENOMEM;
+      goto out;
+   }
 
    thread->kernel_stack = stack_page;
    thread->user_stack = user_stack_page;
    thread->context.fpu_state = NULL;
+
+out:
+   if (result != 0) {
+      if (stack_page != NULL) {
+         mm_free_page(stack_page);
+      }
+
+      if (user_stack_page != NULL) {
+         mm_free_page(user_stack_page);
+      }
+   }
+
+   return result;
 }
 
-void
+int
 thread_init_context(struct thread* thread, bool is_user, void (*entry)(void*), void* arg)
 {
+   int result = 0;
+
    memset(&thread->context, 0, sizeof(struct thread_context));
 
    if (is_user && thread->context.fpu_state == NULL) {
       void* fpu_state = alloc(cpu_fpu_context_size());
 
-      assert(fpu_state != NULL);
+      if (fpu_state == NULL) {
+         result = -ENOMEM;
+         goto out;
+      }
 
       thread->context.fpu_state = fpu_state;
    }
@@ -61,6 +85,9 @@ thread_init_context(struct thread* thread, bool is_user, void (*entry)(void*), v
 
    thread->context.rsp = (uint64_t)stack;
    thread->context.rdi = (uint64_t)arg;
+
+out:
+   return result;
 }
 
 void
