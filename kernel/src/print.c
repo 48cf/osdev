@@ -67,10 +67,8 @@ vpanic(const char* fmt, va_list args)
 {
    asm volatile("cli");
 
-   struct cpu* cpu = get_current_cpu();
-
    vprintf(fmt, args);
-   printf("panic on cpu %zu, oops...\n", cpu->id);
+   printf("panic on cpu %zu, oops...\n", pcb_current_get_cpu()->id);
 
    for (;;) {
       asm volatile("hlt");

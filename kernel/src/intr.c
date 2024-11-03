@@ -17,7 +17,7 @@ dispatch_isr(struct cpu_context* ctx)
 
       handler(ctx);
    } else {
-      struct cpu* cpu = get_current_cpu();
+      struct cpu* cpu = pcb_current_get_cpu();
 
       printf("rax = 0x%016llx rbx = 0x%016llx rcx = 0x%016llx\n", ctx->rax, ctx->rbx, ctx->rcx);
       printf("rdx = 0x%016llx rsi = 0x%016llx rdi = 0x%016llx\n", ctx->rdx, ctx->rsi, ctx->rdi);

@@ -41,7 +41,7 @@ is_x2apic_supported(void)
 void
 lapic_init()
 {
-   struct cpu* cpu = get_current_cpu();
+   struct cpu* cpu = pcb_current_get_cpu();
 
    uint64_t ia32_apic_base = _rdmsr(IA32_APIC_BASE);
 
@@ -72,9 +72,7 @@ lapic_init()
 void
 lapic_eoi()
 {
-   struct cpu* cpu = get_current_cpu();
-
-   lapic_write(cpu, LAPIC_REG_EOI, 0);
+   lapic_write(pcb_current_get_cpu(), LAPIC_REG_EOI, 0);
 }
 
 void

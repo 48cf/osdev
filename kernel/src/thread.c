@@ -105,8 +105,6 @@ thread_switch(struct thread* from, struct thread* to)
 {
    _wrmsr(IA32_FS_BASE, to->fs_base);
 
-   get_current_cpu()->tss.rsp0 = get_stack_top(to->kernel_stack);
-
    if (from->context.fpu_state != NULL) {
       cpu_save_fpu_context(from->context.fpu_state);
    }
@@ -114,6 +112,9 @@ thread_switch(struct thread* from, struct thread* to)
    if (to->context.fpu_state != NULL) {
       cpu_restore_fpu_context(to->context.fpu_state);
    }
+
+   pcb_current_set_thread(to);
+   pcb_current_get_cpu()->tss.rsp0 = get_stack_top(to->kernel_stack);
 
    _do_context_switch(&from->context, &to->context);
 }

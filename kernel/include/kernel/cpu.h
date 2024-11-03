@@ -14,6 +14,7 @@
 struct cpu_block
 {
    struct cpu* cpu;
+   struct thread* current_thread;
 };
 
 struct idt_entry
@@ -98,9 +99,21 @@ struct cpu_context
    } while (0)
 
 static inline struct cpu*
-get_current_cpu()
+pcb_current_get_cpu(void)
 {
    return READ_CPU_LOCAL(struct cpu*, offsetof(struct cpu_block, cpu));
+}
+
+static inline struct thread*
+pcb_current_get_thread(void)
+{
+   return READ_CPU_LOCAL(struct thread*, offsetof(struct cpu_block, current_thread));
+}
+
+static inline void
+pcb_current_set_thread(struct thread* thread)
+{
+   WRITE_CPU_LOCAL(offsetof(struct cpu_block, current_thread), thread);
 }
 
 void
