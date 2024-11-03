@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #define IA32_APIC_BASE 0x1b
+#define IA32_FS_BASE 0xc0000100
 #define IA32_GS_BASE 0xc0000101
 #define IA32_KERNEL_GS_BASE 0xc0000102
 

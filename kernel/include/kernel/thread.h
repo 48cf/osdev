@@ -22,6 +22,7 @@ struct thread_context
 struct thread
 {
    uint64_t id;
+   uintptr_t fs_base;
    struct page* kernel_stack;
    struct page* user_stack;
    struct cpu* last_cpu;

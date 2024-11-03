@@ -1,4 +1,5 @@
 #include <kernel/alloc.h>
+#include <kernel/intrin.h>
 #include <kernel/mm.h>
 #include <kernel/mmu.h>
 #include <kernel/print.h>
@@ -75,6 +76,8 @@ thread_free(struct thread* thread)
 void
 thread_switch(struct thread* from, struct thread* to)
 {
+   _wrmsr(IA32_FS_BASE, to->fs_base);
+
    get_current_cpu()->tss.rsp0 = get_stack_top(to->kernel_stack);
 
    if (from->context.fpu_state != NULL) {
