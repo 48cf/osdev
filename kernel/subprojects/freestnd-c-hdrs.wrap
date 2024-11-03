@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/osdev0/freestnd-c-hdrs.git
+revision = head
+depth = 1
+
+[provide]
+freestnd-c-hdrs = freestnd_c_hdrs_dep

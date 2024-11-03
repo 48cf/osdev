@@ -1,0 +1,9 @@
+.cache/
+.vscode/
+build/
+kernel/subprojects/freestnd-c-hdrs/
+kernel/subprojects/nanoprintf/
+kernel/subprojects/uacpi/
+limine/
+compile_commands.json
+image.iso

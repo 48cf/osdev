@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/charlesnicholson/nanoprintf.git
+revision = 5017d7bd0dc7210ea0c5f2fd8332eca9f222790d
+patch_directory = nanoprintf
+depth = 1
+
+[provide]
+nanoprintf = nanoprintf_dep

@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/UltraOS/uACPI.git
+revision = 20554599e65b3a98d1d77fa2a88b9af49815da5b
+depth = 1

@@ -1,0 +1,9 @@
+[binaries]
+c = 'clang'
+strip = 'llvm-strip'
+
+[host_machine]
+system = 'none'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
