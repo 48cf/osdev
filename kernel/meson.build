@@ -43,7 +43,6 @@ kernel_c_args = [
   '-flto',
   '-fno-stack-check',
   '-fno-stack-protector',
-  '-fPIE',
   '-march=x86-64',
   '-mcmodel=kernel',
   '-mgeneral-regs-only',
