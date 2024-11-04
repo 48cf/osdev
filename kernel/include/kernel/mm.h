@@ -1,11 +1,13 @@
 #pragma once
 
+#include <kernel/queue.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
 struct page
 {
-   struct page* next;
+   SLIST_ENTRY(page) list_entry;
 
    uint32_t max_order : 5;
    uint32_t current_order : 5;

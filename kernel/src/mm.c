@@ -21,7 +21,9 @@ static uintptr_t boot_alloc_l2_end;
 static size_t boot_alloc_offset = 0;
 static size_t boot_alloc_l2_offset = 0;
 
-static struct page* free_pages[BUDDY_COUNT];
+SLIST_HEAD(page_list, page);
+
+static struct page_list free_pages[BUDDY_COUNT];
 static size_t free_page_count[BUDDY_COUNT];
 
 static const char* memmap_entry_type[] = {
@@ -56,29 +58,28 @@ size_from_order(size_t order)
 }
 
 static void
-free_page(struct page* page)
+add_to_free_list(struct page* page)
 {
-   const size_t order = page->current_order;
+   size_t order = page->current_order;
 
-   page->next = free_pages[order];
-   page->on_free_list = true;
+   SLIST_INSERT_HEAD(&free_pages[order], page, list_entry);
 
-   free_pages[order] = page;
    free_page_count[order]++;
 }
 
 static struct page*
-alloc_page(size_t order)
+pop_from_free_list(size_t order)
 {
-   if (free_pages[order] == NULL) {
+   if (SLIST_EMPTY(&free_pages[order])) {
       return NULL;
    }
 
-   struct page* page = free_pages[order];
+   struct page* page = SLIST_FIRST(&free_pages[order]);
 
    page->on_free_list = false;
 
-   free_pages[order] = page->next;
+   SLIST_REMOVE_HEAD(&free_pages[order], list_entry);
+
    free_page_count[order]--;
 
    return page;
@@ -107,7 +108,7 @@ free_region(uintptr_t base, size_t length)
       page->on_free_list = true;
       offset += size_from_order(page->current_order);
 
-      free_page(page);
+      add_to_free_list(page);
    }
 }
 
@@ -231,7 +232,7 @@ mm_alloc_page(uint8_t order)
 
    const uint8_t desired_order = order;
 
-   while (free_pages[order] == NULL) {
+   while (SLIST_EMPTY(&free_pages[order])) {
       if (order == BUDDY_COUNT - 1) {
          return NULL;
       }
@@ -240,7 +241,7 @@ mm_alloc_page(uint8_t order)
    }
 
    for (; order != desired_order; --order) {
-      struct page* page = alloc_page(order);
+      struct page* page = pop_from_free_list(order);
       struct page* buddy = page + (1 << order) / 2;
 
       assert(page->current_order == order);
@@ -248,11 +249,11 @@ mm_alloc_page(uint8_t order)
 
       page->current_order -= 1;
 
-      free_page(page);
-      free_page(buddy);
+      add_to_free_list(page);
+      add_to_free_list(buddy);
    }
 
-   struct page* page = alloc_page(order);
+   struct page* page = pop_from_free_list(order);
 
    assert(page->current_order == desired_order);
 
@@ -270,17 +271,7 @@ mm_free_page(struct page* page)
          break;
       }
 
-      if (free_pages[page->current_order] == buddy) {
-         free_pages[page->current_order] = buddy->next;
-      } else {
-         struct page* it = free_pages[page->current_order];
-
-         while (it->next != buddy) {
-            it = it->next;
-         }
-
-         it->next = buddy->next;
-      }
+      SLIST_REMOVE(&free_pages[page->current_order], buddy, page, list_entry);
 
       if (buddy < page) {
          page = buddy;
@@ -289,7 +280,7 @@ mm_free_page(struct page* page)
       page->current_order += 1;
    }
 
-   free_page(page);
+   add_to_free_list(page);
 }
 
 size_t
