@@ -11,11 +11,17 @@
 #define SEL_USER_DS64 0x20
 #define SEL_TSS 0x28
 
-struct cpu_block
-{
-   struct cpu* cpu;
-   struct thread* current_thread;
-};
+#define READ_CPU_LOCAL(_type, _offset)                                                             \
+   ({                                                                                              \
+      _type _ret;                                                                                  \
+      asm volatile("mov %%gs:(%c1), %0" : "=r"(_ret) : "i"(_offset));                              \
+      _ret;                                                                                        \
+   })
+
+#define WRITE_CPU_LOCAL(_offset, _value)                                                           \
+   do {                                                                                            \
+      asm volatile("mov %0, %%gs:(%c1)" : : "r"(_value), "i"(_offset));                            \
+   } while (0)
 
 struct idt_entry
 {
@@ -40,17 +46,6 @@ struct tss
    uint16_t reserved3;
    uint16_t iopb_offset;
 } __attribute__((packed));
-
-struct cpu
-{
-   uint32_t id;
-   uint32_t flags;
-   uint64_t lapic_base;
-   uint32_t lapic_id;
-   uint64_t gdt[7];
-   struct idt_entry idt[256];
-   struct tss tss;
-};
 
 struct iret_frame
 {
@@ -86,17 +81,22 @@ struct cpu_context
    struct iret_frame iret;
 };
 
-#define READ_CPU_LOCAL(_type, _offset)                                                             \
-   ({                                                                                              \
-      _type _ret;                                                                                  \
-      asm volatile("mov %%gs:(%c1), %0" : "=r"(_ret) : "i"(_offset));                              \
-      _ret;                                                                                        \
-   })
+struct cpu
+{
+   uint32_t id;
+   uint32_t flags;
+   uint64_t lapic_base;
+   uint32_t lapic_id;
+   uint64_t gdt[7];
+   struct idt_entry idt[256];
+   struct tss tss;
+};
 
-#define WRITE_CPU_LOCAL(_offset, _value)                                                           \
-   do {                                                                                            \
-      asm volatile("mov %0, %%gs:(%c1)" : : "r"(_value), "i"(_offset));                            \
-   } while (0)
+struct cpu_block
+{
+   struct cpu* cpu;
+   struct thread* current_thread;
+};
 
 static inline struct cpu*
 pcb_current_get_cpu(void)
