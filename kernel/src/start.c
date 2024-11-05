@@ -9,6 +9,7 @@
 #include <kernel/print.h>
 #include <kernel/serial.h>
 #include <kernel/thread.h>
+#include <kernel/time.h>
 
 #include <limine.h>
 
@@ -57,6 +58,7 @@ _start(void)
    hhdm_offset = hhdm_response->offset;
 
    acpi_init();
+   time_init();
    lapic_init();
    mm_init_early();
    mmu_init();

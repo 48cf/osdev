@@ -21,6 +21,7 @@ kernel_sources = files(
   'src/stdlib.c',
   'src/thread.S',
   'src/thread.c',
+  'src/time.c',
   'src/uacpi.c',
 )
 
