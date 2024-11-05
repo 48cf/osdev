@@ -23,7 +23,6 @@
 #define PTE_FLAGS(pte) ((pte) & ~PTE_PHYS_MASK)
 
 extern volatile struct limine_memmap_request memmap_request;
-extern volatile struct limine_hhdm_request hhdm_request;
 extern volatile struct limine_kernel_address_request kernel_address_request;
 
 extern char __text_start[];
@@ -215,14 +214,11 @@ void
 mmu_init()
 {
    struct limine_memmap_response* memmap_response = memmap_request.response;
-   struct limine_hhdm_response* hhdm_response = hhdm_request.response;
    struct limine_kernel_address_response* kernel_address_response = kernel_address_request.response;
 
    assert(memmap_response != NULL);
-   assert(hhdm_response != NULL);
    assert(kernel_address_response != NULL);
 
-   hhdm_offset = hhdm_response->offset;
    pfndb_offset = 0xffff900000000000;
 
    uintptr_t highest_addr = 0;
@@ -243,7 +239,7 @@ mmu_init()
    const size_t pfndb_size = page_count * sizeof(struct page);
 
    kernel_page_table.cr3 = allocate_l1_page();
-   kernel_page_table.entries = (uint64_t*)(kernel_page_table.cr3 + hhdm_response->offset);
+   kernel_page_table.entries = (uint64_t*)(kernel_page_table.cr3 + hhdm_offset);
 
    for (size_t i = 0; i < 512; ++i) {
       kernel_page_table.entries[i] = 0;
@@ -252,10 +248,8 @@ mmu_init()
    for (size_t i = 0; i < 512; ++i) {
       const uint64_t phys = i * PAGE_SIZE_L3;
 
-      mmu_map_page_l3(&kernel_page_table,
-                      phys,
-                      phys + hhdm_response->offset,
-                      MMU_PRESENT | MMU_READ | MMU_WRITE);
+      mmu_map_page_l3(
+         &kernel_page_table, phys, phys + hhdm_offset, MMU_PRESENT | MMU_READ | MMU_WRITE);
    }
 
    if (pfndb_size >= PAGE_SIZE_L2) {

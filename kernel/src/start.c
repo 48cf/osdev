@@ -49,6 +49,13 @@ _start(void)
 {
    cpu_init_early();
    serial_init(COM1_PORT);
+
+   struct limine_hhdm_response* hhdm_response = hhdm_request.response;
+
+   assert(hhdm_response != NULL);
+
+   hhdm_offset = hhdm_response->offset;
+
    acpi_init();
    lapic_init();
    mm_init_early();
