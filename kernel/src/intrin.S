@@ -235,3 +235,13 @@ _cpuid:
    mov %edx, 12(%r8)
    ret
 .size _cpuid, .-_cpuid
+
+.global _rdtsc
+.type _rdtsc,"function"
+_rdtsc:
+   rdtsc
+   sal $32, %rdx
+   mov %eax, %eax
+   or %rdx, %rax
+   ret
+.size _rdtsc, .-_rdtsc

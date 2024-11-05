@@ -101,3 +101,26 @@ _xgetbv(uint32_t ecx);
 
 void
 _cpuid(uint32_t eax, uint32_t ecx, struct cpuid* result);
+
+uint64_t
+_rdtsc(void);
+
+static inline bool
+cpuid_is_leaf_supported(uint32_t leaf)
+{
+   struct cpuid cpuid;
+
+   _cpuid(leaf, 0, &cpuid);
+
+   return cpuid.eax >= leaf;
+}
+
+static inline bool
+cpuid_is_extended_leaf_supported(uint32_t leaf)
+{
+   struct cpuid cpuid;
+
+   _cpuid(0x80000000, 0, &cpuid);
+
+   return cpuid.eax >= leaf;
+}
