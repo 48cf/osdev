@@ -90,6 +90,9 @@ struct cpu
    uint64_t gdt[7];
    struct idt_entry idt[256];
    struct tss tss;
+   uint64_t tsc_frequency;
+   uint64_t tsc_ratio_n;
+   uint64_t tsc_ratio_p;
 };
 
 struct cpu_block

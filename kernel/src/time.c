@@ -1,55 +1,51 @@
 #include <kernel/acpi.h>
+#include <kernel/cpu.h>
 #include <kernel/intrin.h>
 #include <kernel/mmu.h>
 #include <kernel/print.h>
 #include <kernel/time.h>
+#include <kernel/utils.h>
+
+#include <uacpi/io.h>
 
 #define CALIBRATION_RUNS 10
-#define ACPI_TIMER_FREQUENCY 3579545
-#define USEC_PER_SEC 1000000
+#define ACPI_TIMER_FREQUENCY 3579545 // 3.579545 MHz
 
 static uint64_t
-pm_timer_ticks_to_us(uint64_t ticks)
+acpi_timer_ticks_to_us(uint64_t ticks)
 {
-   return (ticks * USEC_PER_SEC) / ACPI_TIMER_FREQUENCY;
-}
-
-static uint32_t
-read_pm_timer(struct acpi_fadt* fadt)
-{
-   // could use uacpi_read_gas for this but it seems overly complicated
-   // for what essentially could just be a single inl/mminl so we'll just do it manually
-   if (fadt->x_pm_tmr_blk.address_space_id == UACPI_ADDRESS_SPACE_SYSTEM_IO) {
-      return _inl((uint16_t)fadt->x_pm_tmr_blk.address);
-   } else {
-      return _mminl(fadt->x_pm_tmr_blk.address + hhdm_offset);
-   }
+   return (ticks * NSEC_PER_SEC) / ACPI_TIMER_FREQUENCY / 1000;
 }
 
 static uint64_t
-pm_timer_wait(struct acpi_fadt* fadt, uint64_t us)
+acpi_timer_wait(struct acpi_fadt* fadt, uint64_t us)
 {
-retry:
-   uint64_t tsc = _rdtsc();
-   uint64_t start = read_pm_timer(fadt);
+   uint64_t start;
+   uint64_t end;
+
+   uacpi_gas_read(&fadt->x_pm_tmr_blk, &start);
+
+   uint64_t start_tsc = _rdtsc();
 
    while (true) {
-      uint64_t end = read_pm_timer(fadt);
+      uacpi_gas_read(&fadt->x_pm_tmr_blk, &end);
+
+      uint64_t tsc = _rdtsc();
 
       // if the timer rolls over we can just try again
       // this happens roughly every couple seconds with 24-bit timers
       if (end < start) {
-         goto retry;
+         start += (uint64_t)1 << (fadt->flags & ACPI_TMR_VAL_EXT ? 32 : 24);
       }
 
-      if (pm_timer_ticks_to_us(end - start) >= us) {
-         return _rdtsc() - tsc;
+      if (acpi_timer_ticks_to_us(end - start) >= us) {
+         return tsc - start_tsc;
       }
    }
 }
 
 static void
-calibrate_tsc(void)
+calibrate_tsc(struct cpu* cpu)
 {
    struct acpi_fadt* fadt;
 
@@ -62,7 +58,7 @@ calibrate_tsc(void)
    }
 
    if (use_pm_timer) {
-      printf("time: pm timer resolution: %llu bits\n", fadt->flags & ACPI_TMR_VAL_EXT ? 32 : 24);
+      printf("time: acpi timer resolution: %llu bits\n", fadt->flags & ACPI_TMR_VAL_EXT ? 32 : 24);
 
       assert(fadt->x_pm_tmr_blk.address_space_id == UACPI_ADDRESS_SPACE_SYSTEM_IO ||
              fadt->x_pm_tmr_blk.address_space_id == UACPI_ADDRESS_SPACE_SYSTEM_MEMORY);
@@ -72,9 +68,7 @@ calibrate_tsc(void)
       uint64_t lowest_tsc = UINT64_MAX;
 
       for (size_t i = 0; i < CALIBRATION_RUNS; ++i) {
-         uint64_t tsc = pm_timer_wait(fadt, USEC_PER_SEC / 1000);
-
-         printf("time: tsc: %llu ticks per 1ms\n", tsc);
+         uint64_t tsc = acpi_timer_wait(fadt, (NSEC_PER_SEC / 1000 / 1000) * 25) / 25;
 
          times[i] = tsc;
 
@@ -92,55 +86,33 @@ calibrate_tsc(void)
          if (deviaton >= 95 && deviaton <= 105) {
             mean += times[i];
             mean_count++;
-         } else {
-            printf("time: %llu is an outlier (%llu%%)\n", times[i], deviaton);
          }
       }
 
       if (mean_count < 5) {
-         printf("time: calibration failed, retrying\n");
          goto retry;
       }
 
       mean /= mean_count;
-      mean /= 1000; // ms -> us
 
-      uint64_t last_tsc = _rdtsc();
-      uint64_t last_pm = read_pm_timer(fadt);
-
-      while (true) {
-         if (_rdtsc() - last_tsc >= mean * USEC_PER_SEC) {
-            uint64_t pm = read_pm_timer(fadt);
-
-            if (pm < last_pm) {
-               printf("time: pm timer rolled over\n");
-
-               last_pm -= (fadt->flags & ACPI_TMR_VAL_EXT) ? (1ull << 32) : (1ull << 24);
-            }
-
-            printf("tsc: %llu ticks, pm: %lluus\n",
-                   _rdtsc() - last_tsc,
-                   pm_timer_ticks_to_us(pm - last_pm));
-
-            last_tsc = _rdtsc();
-            last_pm = pm;
-         }
-      }
+      cpu->tsc_frequency = mean * 1000;
+      cpu->tsc_ratio_p = sizeof(uint64_t) * 8 - 1 - __builtin_clzll(cpu->tsc_frequency);
+      cpu->tsc_ratio_n = ((uint64_t)1000000000 << cpu->tsc_ratio_p) / cpu->tsc_frequency;
    } else {
       struct uacpi_table hpet_table;
 
       assert(acpi_get_table(ACPI_HPET_SIGNATURE, 0, &hpet_table));
       assert(hpet_table.virt_addr != 0);
 
-      assert(!"hpet calibration not implemented");
+      panic("time: hpet calibration not yet implemented\n");
    }
-
-   assert(false);
 }
 
 void
 time_init(void)
 {
+   struct cpu* cpu = pcb_current_get_cpu();
+
    assert(cpuid_is_extended_leaf_supported(0x80000007));
 
    struct cpuid cpuid;
@@ -151,17 +123,30 @@ time_init(void)
       panic("time: invariant tsc not supported\n");
    }
 
-   calibrate_tsc();
+   calibrate_tsc(cpu);
 }
 
 uint64_t
 time_get_ticks(void)
 {
-   return 0;
+   return _rdtsc();
+}
+
+uint64_t
+time_get_nanoseconds(void)
+{
+   struct cpu* cpu = pcb_current_get_cpu();
+
+   return ((unsigned __int128)time_get_ticks() * cpu->tsc_ratio_n) >> cpu->tsc_ratio_p;
 }
 
 struct timespec
 time_get_time(void)
 {
-   return (struct timespec){ 0, 0 };
+   uint64_t nanos = time_get_nanoseconds();
+
+   return (struct timespec){
+      .sec = nanos / NSEC_PER_SEC,
+      .nsec = nanos % NSEC_PER_SEC,
+   };
 }

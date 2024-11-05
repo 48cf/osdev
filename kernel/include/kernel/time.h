@@ -2,7 +2,9 @@
 
 #include <stdint.h>
 
-#define NSEC_PER_SEC 1000000000
+#define NSEC_PER_USEC 1000
+#define NSEC_PER_MSEC (NSEC_PER_USEC * 1000)
+#define NSEC_PER_SEC (NSEC_PER_MSEC * 1000)
 
 typedef int64_t time_t;
 
@@ -60,6 +62,9 @@ time_init(void);
 
 uint64_t
 time_get_ticks(void);
+
+uint64_t
+time_get_nanoseconds(void);
 
 struct timespec
 time_get_time(void);
