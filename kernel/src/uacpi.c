@@ -1,3 +1,5 @@
+#include <kernel/intrin.h>
+#include <kernel/mmu.h>
 #include <kernel/print.h>
 
 #include <limine.h>
@@ -23,25 +25,87 @@ uacpi_kernel_get_rsdp(uacpi_phys_addr* out_rdsp_address)
 uacpi_status
 uacpi_kernel_raw_memory_read(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64* out_value)
 {
-   return UACPI_STATUS_UNIMPLEMENTED;
+   switch (byte_width) {
+      case 1:
+         *out_value = _mminb(address + hhdm_offset);
+         break;
+      case 2:
+         *out_value = _mminw(address + hhdm_offset);
+         break;
+      case 4:
+         *out_value = _mminl(address + hhdm_offset);
+         break;
+      case 8:
+         *out_value = _mminq(address + hhdm_offset);
+         break;
+      default:
+         return UACPI_STATUS_INVALID_ARGUMENT;
+   }
+
+   return UACPI_STATUS_OK;
 }
 
 uacpi_status
 uacpi_kernel_raw_memory_write(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 in_value)
 {
-   return UACPI_STATUS_UNIMPLEMENTED;
+   switch (byte_width) {
+      case 1:
+         _mmoutb(address + hhdm_offset, in_value);
+         break;
+      case 2:
+         _mmoutw(address + hhdm_offset, in_value);
+         break;
+      case 4:
+         _mmoutl(address + hhdm_offset, in_value);
+         break;
+      case 8:
+         _mmoutq(address + hhdm_offset, in_value);
+         break;
+      default:
+         return UACPI_STATUS_INVALID_ARGUMENT;
+   }
+
+   return UACPI_STATUS_OK;
 }
 
 uacpi_status
 uacpi_kernel_raw_io_read(uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64* out_value)
 {
-   return UACPI_STATUS_UNIMPLEMENTED;
+   switch (byte_width) {
+      case 1:
+         *out_value = _inb(address);
+         break;
+      case 2:
+         *out_value = _inw(address);
+         break;
+      case 4:
+         *out_value = _inl(address);
+         break;
+      default:
+         return UACPI_STATUS_INVALID_ARGUMENT;
+   }
+
+   return UACPI_STATUS_OK;
 }
 
 uacpi_status
 uacpi_kernel_raw_io_write(uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64 in_value)
 {
-   return UACPI_STATUS_UNIMPLEMENTED;
+   switch (byte_width) {
+      case 1:
+         _outb(address, in_value);
+         break;
+      case 2:
+         _outw(address, in_value);
+         break;
+      case 4:
+         _outl(address, in_value);
+         break;
+      default:
+         return UACPI_STATUS_INVALID_ARGUMENT;
+   }
+
+   return UACPI_STATUS_OK;
 }
 
 uacpi_status
