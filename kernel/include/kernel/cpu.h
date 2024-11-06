@@ -1,5 +1,7 @@
 #pragma once
 
+#include <kernel/queue.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -94,6 +96,7 @@ struct cpu
    uint64_t tsc_frequency;
    uint64_t tsc_ratio_n;
    uint64_t tsc_ratio_p;
+   TAILQ_HEAD(timer_queue, timer) timer_queue;
 };
 
 struct cpu_block

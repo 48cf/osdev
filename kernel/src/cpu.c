@@ -152,6 +152,8 @@ cpu_init_early(void)
    bsp_cpu_block.cpu = &bsp_cpu;
    bsp_cpu.id = 0;
 
+   TAILQ_INIT(&bsp_cpu.timer_queue);
+
    init_cpu_features();
 
    struct cpuid cpuid;
