@@ -13,6 +13,11 @@
 
 #include <limine.h>
 
+struct limine_framebuffer_request framebuffer_request = {
+   .id = LIMINE_FRAMEBUFFER_REQUEST,
+   .response = NULL,
+};
+
 struct limine_memmap_request memmap_request = {
    .id = LIMINE_MEMMAP_REQUEST,
    .response = NULL,
@@ -57,6 +62,7 @@ _start(void)
 
    hhdm_offset = hhdm_response->offset;
 
+   print_fb_init();
    acpi_init();
    time_init();
    lapic_init();

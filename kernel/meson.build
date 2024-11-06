@@ -29,6 +29,7 @@ kernel_includes = [
   include_directories('include'),
 ]
 
+flanterm = dependency('flanterm')
 freestnd_c_hdrs = dependency('freestnd-c-hdrs')
 nanoprintf = dependency('nanoprintf')
 uacpi = subproject('uacpi')
@@ -69,5 +70,5 @@ kernel = executable(
   c_args: kernel_c_args,
   link_args: kernel_link_args,
   include_directories: kernel_includes,
-  dependencies: [freestnd_c_hdrs, nanoprintf],
+  dependencies: [flanterm, freestnd_c_hdrs, nanoprintf],
 )

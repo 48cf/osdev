@@ -1,6 +1,7 @@
 .cache/
 .vscode/
 build/
+kernel/subprojects/flanterm/
 kernel/subprojects/freestnd-c-hdrs/
 kernel/subprojects/nanoprintf/
 kernel/subprojects/uacpi/

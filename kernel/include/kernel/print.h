@@ -3,6 +3,9 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+void
+print_fb_init(void);
+
 size_t
 sprintf(char* buf, size_t count, const char* fmt, ...);
 
