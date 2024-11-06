@@ -15,6 +15,15 @@ struct timespec
 };
 
 static inline struct timespec
+timespec_from_nsec(uint64_t ns)
+{
+   return (struct timespec){
+      .sec = ns / NSEC_PER_SEC,
+      .nsec = ns % NSEC_PER_SEC,
+   };
+}
+
+static inline struct timespec
 timespec_add(struct timespec a, struct timespec b)
 {
    struct timespec result;
@@ -54,7 +63,7 @@ timespec_sub(struct timespec a, struct timespec b)
 static inline time_t
 timespec_to_nsec(struct timespec ts)
 {
-   return ts.sec * NSEC_PER_SEC + ts.nsec;
+   return (uint64_t)ts.sec * NSEC_PER_SEC + ts.nsec;
 }
 
 void
@@ -64,10 +73,7 @@ uint64_t
 time_get_ticks(void);
 
 uint64_t
-time_get_nanoseconds(void);
-
-struct timespec
-time_get_time(void);
+time_get_nanos(void);
 
 uint64_t
 time_nanos_to_ticks(uint64_t ns);

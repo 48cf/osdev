@@ -17,7 +17,7 @@ void
 timer_init(struct timer* timer);
 
 void
-timer_start(struct timer* timer, uint64_t ns);
+timer_arm(struct timer* timer, uint64_t deadline);
 
 void
-timer_stop(struct timer* timer);
+timer_disarm(struct timer* timer);

@@ -99,7 +99,9 @@ calibrate_tsc(struct cpu* cpu)
 
       cpu->tsc_frequency = mean * 1000;
       cpu->tsc_ratio_p = sizeof(uint64_t) * 8 - 1 - __builtin_clzll(cpu->tsc_frequency);
+      cpu->tsc_ratio_p2 = sizeof(uint64_t) * 8 - 1 - __builtin_clzll(NSEC_PER_SEC);
       cpu->tsc_ratio_n = ((uint64_t)1000000000 << cpu->tsc_ratio_p) / cpu->tsc_frequency;
+      cpu->tsc_ratio_n2 = ((uint64_t)cpu->tsc_frequency << cpu->tsc_ratio_p2) / NSEC_PER_SEC;
    } else {
       struct uacpi_table hpet_table;
 
@@ -156,22 +158,11 @@ time_get_ticks(void)
 }
 
 uint64_t
-time_get_nanoseconds(void)
+time_get_nanos(void)
 {
    struct cpu* cpu = pcb_current_get_cpu();
 
    return ((unsigned __int128)time_get_ticks() * cpu->tsc_ratio_n) >> cpu->tsc_ratio_p;
-}
-
-struct timespec
-time_get_time(void)
-{
-   uint64_t nanos = time_get_nanoseconds();
-
-   return (struct timespec){
-      .sec = nanos / NSEC_PER_SEC,
-      .nsec = nanos % NSEC_PER_SEC,
-   };
 }
 
 uint64_t
@@ -179,5 +170,5 @@ time_nanos_to_ticks(uint64_t ns)
 {
    struct cpu* cpu = pcb_current_get_cpu();
 
-   return (ns << cpu->tsc_ratio_p) / cpu->tsc_ratio_n;
+   return ((unsigned __int128)ns * cpu->tsc_ratio_n2) >> cpu->tsc_ratio_p2;
 }

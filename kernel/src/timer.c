@@ -43,7 +43,7 @@ timer_init(struct timer* timer)
 }
 
 void
-timer_start(struct timer* timer, uint64_t ns)
+timer_arm(struct timer* timer, uint64_t deadline)
 {
    uint64_t ticks = time_get_ticks();
 
@@ -55,7 +55,7 @@ timer_start(struct timer* timer, uint64_t ns)
    struct timer* last = TAILQ_LAST(&cpu->timer_queue, timer_queue);
 
    timer->cpu = cpu;
-   timer->deadline = ticks + time_nanos_to_ticks(ns);
+   timer->deadline = deadline;
 
    enqueue_timer(timer);
 
@@ -65,7 +65,7 @@ timer_start(struct timer* timer, uint64_t ns)
 }
 
 void
-timer_stop(struct timer* timer)
+timer_disarm(struct timer* timer)
 {
    dequeue_timer(timer);
 

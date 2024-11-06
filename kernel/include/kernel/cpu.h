@@ -95,7 +95,9 @@ struct cpu
    struct tss tss;
    uint64_t tsc_frequency;
    uint64_t tsc_ratio_n;
+   uint64_t tsc_ratio_n2;
    uint64_t tsc_ratio_p;
+   uint64_t tsc_ratio_p2;
    TAILQ_HEAD(timer_queue, timer) timer_queue;
 };
 

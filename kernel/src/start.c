@@ -45,20 +45,26 @@ static struct thread test_thread;
 static void
 test_thread_func(void* arg)
 {
-   asm volatile("sti");
 
    printf("test: hello world from test thread\n");
 
-   struct timer timer;
+   while (true) {
+      struct timespec start_ts = timespec_from_nsec(time_get_nanos());
 
-   timer_init(&timer);
+      printf("test: current time is %lu.%09lu\n", start_ts.sec, start_ts.nsec);
 
-   for (;;) {
-      timer_start(&timer, NSEC_PER_SEC);
+      struct timer timer;
+      struct timespec end_ts = timespec_add(start_ts, timespec_from_nsec(NSEC_PER_MSEC * 10));
 
+      printf("test: setting timer to expire at %lu.%09lu\n", end_ts.sec, end_ts.nsec);
+
+      timer_init(&timer);
+      timer_arm(&timer, time_nanos_to_ticks(timespec_to_nsec(end_ts)));
+
+      asm volatile("sti");
       asm volatile("hlt");
 
-      struct timespec ts = time_get_time();
+      struct timespec ts = timespec_from_nsec(time_get_nanos());
 
       printf("test: timer expired at %lu.%09lu\n", ts.sec, ts.nsec);
    }
