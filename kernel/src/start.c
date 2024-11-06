@@ -10,6 +10,7 @@
 #include <kernel/serial.h>
 #include <kernel/thread.h>
 #include <kernel/time.h>
+#include <kernel/timer.h>
 
 #include <limine.h>
 
@@ -44,9 +45,25 @@ static struct thread test_thread;
 static void
 test_thread_func(void* arg)
 {
-   printf("test: hello world from test thread\n");
-   printf("test: switching back to main thread\n");
+   asm volatile("sti");
 
+   printf("test: hello world from test thread\n");
+
+   struct timer timer;
+
+   timer_init(&timer);
+
+   for (;;) {
+      timer_start(&timer, NSEC_PER_SEC);
+
+      asm volatile("hlt");
+
+      struct timespec ts = time_get_time();
+
+      printf("test: timer expired at %lu.%09lu\n", ts.sec, ts.nsec);
+   }
+
+   printf("test: switching back to main thread\n");
    thread_switch(&test_thread, &main_thread);
 }
 
@@ -73,13 +90,10 @@ _start(void)
 
    thread_init(&main_thread);
    thread_init(&test_thread);
-   thread_init_context(&test_thread, true, test_thread_func, NULL);
-
-   printf("start: jumping to usermode\n");
-
+   thread_init_context(&test_thread, false, test_thread_func, NULL);
    thread_switch(&main_thread, &test_thread);
 
-   printf("start: we're back!\n");
+   printf("main: back to main thread\n");
 
    for (;;) {
       asm volatile("hlt");
