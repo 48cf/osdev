@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define CPU_X2APIC (1 << 0)
+#define CPU_TSC_DEADLINE (1 << 1)
 
 #define SEL_CS64 0x8
 #define SEL_DS64 0x10

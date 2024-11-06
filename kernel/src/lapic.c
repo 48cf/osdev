@@ -7,6 +7,7 @@
 
 #define LAPIC_REG_ID 0x20
 #define LAPIC_REG_EOI 0xb0
+#define LAPIC_REG_LVT_TIMER 0x320
 
 static inline void
 lapic_write(struct cpu* cpu, size_t reg, uint64_t value)
@@ -79,4 +80,29 @@ void
 lapic_send_ipi(uint32_t lapic_id, uint8_t vector)
 {
    // @todo: Implement this
+}
+
+void
+lapic_timer_arm_one_shot(uint64_t ticks, uint8_t vector)
+{
+   struct cpu* cpu = pcb_current_get_cpu();
+
+   if (cpu->flags & CPU_TSC_DEADLINE) {
+      lapic_write(cpu, LAPIC_REG_LVT_TIMER, (uint32_t)vector | (0b10 << 17));
+      _wrmsr(IA32_TSC_DEADLINE, ticks);
+   } else {
+      panic("lapic: implement regular lapic timer\n");
+   }
+}
+
+void
+lapic_timer_disarm(void)
+{
+   struct cpu* cpu = pcb_current_get_cpu();
+
+   if (cpu->flags & CPU_TSC_DEADLINE) {
+      _wrmsr(IA32_TSC_DEADLINE, 0);
+   } else {
+      panic("lapic: implement regular lapic timer\n");
+   }
 }

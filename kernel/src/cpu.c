@@ -158,6 +158,12 @@ cpu_init_early(void)
 
    _cpuid(0x1, 0, &cpuid);
 
+   if (cpuid.ecx & (1 << 24)) {
+      printf("cpu: tsc deadline timer support on cpu %u\n", bsp_cpu.id);
+
+      bsp_cpu.flags |= CPU_TSC_DEADLINE;
+   }
+
    // check for XSAVE support
    if (cpuid.ecx & (1 << 26)) {
       _cpuid(0xd, 0, &cpuid);
