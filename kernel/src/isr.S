@@ -69,7 +69,7 @@ _isr_common:
    // pop the int vec number and error code from the stack
    add $16, %rsp
    // check if we need to swapgs before returning to user mode
-   testq $3, 16(%rsp)
+   testq $3, 8(%rsp)
    jz 1f
    swapgs
 1:
