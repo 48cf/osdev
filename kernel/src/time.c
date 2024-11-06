@@ -1,9 +1,11 @@
 #include <kernel/acpi.h>
 #include <kernel/cpu.h>
+#include <kernel/intr.h>
 #include <kernel/intrin.h>
 #include <kernel/mmu.h>
 #include <kernel/print.h>
 #include <kernel/time.h>
+#include <kernel/timer.h>
 #include <kernel/utils.h>
 
 #include <uacpi/io.h>
@@ -108,6 +110,26 @@ calibrate_tsc(struct cpu* cpu)
    }
 }
 
+static void
+timer_isr_handler(struct cpu_context* ctx)
+{
+   uint64_t ticks = time_get_ticks();
+
+   struct cpu* cpu = pcb_current_get_cpu();
+   struct timer* timer;
+
+   TAILQ_FOREACH(timer, &cpu->timer_queue, list_entry)
+   {
+      if (timer->deadline > ticks) {
+         break;
+      }
+
+      TAILQ_REMOVE(&cpu->timer_queue, timer, list_entry);
+
+      // @todo: wake up all threads waiting on the timer
+   }
+}
+
 void
 time_init(void)
 {
@@ -124,6 +146,7 @@ time_init(void)
    }
 
    calibrate_tsc(cpu);
+   int_set_handler(32, timer_isr_handler);
 }
 
 uint64_t
