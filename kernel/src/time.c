@@ -150,3 +150,11 @@ time_get_time(void)
       .nsec = nanos % NSEC_PER_SEC,
    };
 }
+
+uint64_t
+time_nanos_to_ticks(uint64_t ns)
+{
+   struct cpu* cpu = pcb_current_get_cpu();
+
+   return (ns << cpu->tsc_ratio_p) / cpu->tsc_ratio_n;
+}
