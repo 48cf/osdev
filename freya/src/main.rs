@@ -9,7 +9,6 @@ extern crate alloc;
 
 mod arch;
 mod boot;
-mod cpu;
 mod memory;
 mod per_cpu;
 mod scheduler;
