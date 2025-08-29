@@ -46,6 +46,7 @@ static KERNEL_VIRTUAL_TREE: Lazy<Mutex<KernelVirtualTree<'static>>> = Lazy::new(
     };
 
     let mut tree = KernelVirtualTree::new(KernelVirtualHoleAdapter::new());
+
     tree.insert(hole);
 
     Mutex::new(tree)
@@ -99,7 +100,11 @@ pub fn allocate_virtual_memory(size: usize) -> Option<u64> {
 }
 
 pub fn free_virtual_memory(address: u64, size: usize) {
-    todo!()
+    crate::println!(
+        "Freeing virtual memory not implemented yet, address={:#x} size={:#x}",
+        address,
+        size
+    );
 }
 
 pub fn dump_virtual_tree() {

@@ -20,7 +20,10 @@ use alloc::vec::Vec;
 
 use arch::{gdt::Gdt, idt::Idt};
 
-use crate::scheduler::{Blockable, Fiber, LOCAL_SCHEDULER, Thread};
+use crate::{
+    arch::executor::ArchExecutor,
+    scheduler::{Blockable, Executor, Fiber, LOCAL_SCHEDULER, Thread},
+};
 
 #[macro_export]
 macro_rules! print {
@@ -143,6 +146,11 @@ pub struct InterruptFrame {
     pub rsp: u64,
     pub ss: u64,
 }
+
+const _: () = {
+    // Make sure the interrupt frame is 16-byte aligned.
+    assert!(size_of::<InterruptFrame>() % 16 == 0);
+};
 
 extern "C" fn kernel_interrupt_handler(frame: &mut InterruptFrame) {
     println!("Exception: {}", frame.interrupt_number);
@@ -295,6 +303,13 @@ extern "C" fn kernel_main() -> ! {
     // );
 
     // memory::heap::dump_virtual_tree();
+
+    // arch::executor::fork_executor(|frame| {
+    //     let mut executor = ArchExecutor::new();
+    //     executor.save(frame);
+    //     println!("Executor: {:#x?}", executor);
+    //     executor.restore();
+    // });
 
     let scheduler = LOCAL_SCHEDULER.get();
 

@@ -44,7 +44,7 @@ impl KernelStack {
 
 impl Drop for KernelStack {
     fn drop(&mut self) {
-        let mut cursor = KERNEL_PAGE_SPACE.cursor(self.base);
+        let mut cursor = KERNEL_PAGE_SPACE.cursor(self.base + PAGE_SIZE as u64);
 
         for _ in (PAGE_SIZE..Self::SIZE).step_by(PAGE_SIZE) {
             let (physical_page, _) = cursor.unmap_page().expect("Failed to unmap page");

@@ -78,6 +78,7 @@ where
         }
 
         self.address = address;
+
         self.reload_level(Self::LAST_LEVEL);
     }
 
@@ -124,13 +125,17 @@ where
         }
     }
 
-    pub fn unmap_page(&self) -> Option<(u64, PageStatus)> {
-        if !self.accessors[Self::LAST_LEVEL].is_null() {
+    pub fn unmap_page(&mut self) -> Option<(u64, PageStatus)> {
+        if !self.accessors[Self::LAST_LEVEL].is_null() || self.reload_level(Self::LAST_LEVEL) {
             let pte = self.current_pte().swap(0, Ordering::Relaxed);
 
             P::pte_write_barrier();
 
-            Some((P::pte_page_address(pte), P::pte_page_status(pte)))
+            if P::pte_page_present(pte) {
+                Some((P::pte_page_address(pte), P::pte_page_status(pte)))
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -143,26 +148,6 @@ where
             ))
         }
     }
-
-    // fn reload_level_impl(&mut self, sub_pt: usize, pt: usize, level: usize) -> bool {
-    //     let pte_ptr =
-    //         unsafe {
-    //             AtomicU64::from_ptr(self.accessors[pt].as_mut::<u64>().offset(
-    //                 ((self.address >> Self::level_shift(level)) & Self::LEVEL_MASK) as isize,
-    //             ))
-    //         };
-    //     let pte = pte_ptr.load(Ordering::Acquire);
-
-    //     if P::pte_table_present(pte) {
-    //         let table_address = P::pte_table_address(pte);
-
-    //         self.accessors[sub_pt] = PageAccessor::new(table_address);
-
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
 
     fn reload_level(&mut self, level: usize) -> bool {
         if self.accessors[level].is_null() {
@@ -188,36 +173,10 @@ where
             let table_address = P::pte_table_address(pte);
 
             self.accessors[level] = PageAccessor::new(table_address);
-
-            // self.reload_level_impl(level, level - 1, level - 1)
         }
 
         true
     }
-
-    // fn ensure_level_impl(&mut self, sub_pt: usize, pt: usize, level: usize) {
-    //     let pte_ptr =
-    //         unsafe {
-    //             AtomicU64::from_ptr(self.accessors[pt].as_mut::<u64>().offset(
-    //                 ((self.address >> Self::level_shift(level)) & Self::LEVEL_MASK) as isize,
-    //             ))
-    //         };
-    //     let pte = pte_ptr.load(Ordering::Acquire);
-    //     let table_address = if P::pte_table_present(pte) {
-    //         P::pte_table_address(pte)
-    //     } else {
-    //         let new_pte = P::pte_table_new();
-    //         let table_address = P::pte_table_address(new_pte);
-
-    //         pte_ptr.store(new_pte, Ordering::Release);
-
-    //         P::pte_write_barrier();
-
-    //         table_address
-    //     };
-
-    //     self.accessors[sub_pt] = PageAccessor::new(table_address);
-    // }
 
     fn ensure_level(&mut self, level: usize) {
         if self.accessors[level].is_null() {
@@ -247,8 +206,6 @@ where
             };
 
             self.accessors[level] = PageAccessor::new(table_address);
-
-            // self.ensure_level_impl(level, level - 1, level - 1);
         }
     }
 

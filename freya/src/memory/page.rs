@@ -281,20 +281,17 @@ pub fn free(address: u64, size: usize) {
 
     let mut inner = STATE.inner.lock();
 
-    for region in inner.regions_mut() {
-        if address < region.physical_address
-            || (address + size as u64) - region.physical_address > region.region_size as u64
-        {
-            continue;
-        }
-
+    if let Some(region) = inner.regions_mut().find(|region| {
+        address >= region.physical_address
+            && address + size as u64 <= region.physical_address + region.region_size as u64
+    }) {
         region.buddy.free(address, order);
+    } else {
+        panic!(
+            "Physical page {:#x} is not part of any memory region",
+            address
+        );
     }
-
-    panic!(
-        "Physical page {:#x} is not part of any memory region",
-        address
-    );
 }
 
 pub fn total_pages() -> usize {

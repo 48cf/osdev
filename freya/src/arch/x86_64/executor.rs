@@ -118,24 +118,16 @@ impl Executor for ArchExecutor {
     }
 }
 
-extern "C" fn fork_executor_entry<F: FnMut(&InterruptFrame) -> !>(
-    frame: *const InterruptFrame,
-    arg: usize,
-) -> ! {
-    crate::println!("Frame: {:#016x?}", unsafe { &*frame });
-
-    let func: &mut F = unsafe { &mut *(arg as *mut F) };
-
-    func(unsafe { &*frame });
-}
-
-extern "C" fn run_on_stack_entry<F: FnMut(usize) -> !>(previous_sp: usize, arg: usize) -> ! {
-    let func: &mut F = unsafe { &mut *(arg as *mut F) };
-
-    func(previous_sp)
-}
-
 pub fn fork_executor<F: FnMut(&InterruptFrame) -> !>(func: F) {
+    extern "C" fn fork_executor_entry<F: FnMut(&InterruptFrame) -> !>(
+        frame: *const InterruptFrame,
+        arg: usize,
+    ) -> ! {
+        let func: &mut F = unsafe { &mut *(arg as *mut F) };
+
+        func(unsafe { &*frame });
+    }
+
     do_fork_executor(
         fork_executor_entry::<F> as usize,
         &func as *const _ as usize,
@@ -143,6 +135,12 @@ pub fn fork_executor<F: FnMut(&InterruptFrame) -> !>(func: F) {
 }
 
 pub fn run_on_stack<F: FnMut(usize) -> !>(stack: &KernelStack, func: F) -> ! {
+    extern "C" fn run_on_stack_entry<F: FnMut(usize) -> !>(previous_sp: usize, arg: usize) -> ! {
+        let func: &mut F = unsafe { &mut *(arg as *mut F) };
+
+        func(previous_sp)
+    }
+
     let mut top = stack.top() as usize;
 
     top -= (size_of::<F>() + 0xF) & !0xF;
@@ -257,78 +255,60 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
     );
 }
 
-#[unsafe(naked)]
-extern "C" fn do_fork_executor(func: usize, arg: usize) {
-    naked_asm!(
-        // Make enough space on the stack to store the fake interrupt frame
-        "sub rsp, {interrupt_frame_size}",
-        // Save general registers
-        "mov [rsp + {r15}], r15",
-        "mov [rsp + {r14}], r14",
-        "mov [rsp + {r13}], r13",
-        "mov [rsp + {r12}], r12",
-        "mov [rsp + {r11}], r11",
-        "mov [rsp + {r10}], r10",
-        "mov [rsp + {r9}], r9",
-        "mov [rsp + {r8}], r8",
-        "mov [rsp + {rsi}], rsi",
-        "mov [rsp + {rdi}], rdi",
-        "mov [rsp + {rbp}], rbp",
-        "mov [rsp + {rdx}], rdx",
-        "mov [rsp + {rcx}], rcx",
-        "mov [rsp + {rbx}], rbx",
-        "mov [rsp + {rax}], rax",
-        // Clear out interrupt number and error code
-        "mov qword ptr [rsp + {interrupt_number}], 0",
-        "mov qword ptr [rsp + {error}], 0",
-        // Load the return address from the stack
-        "mov rax, [rsp + {interrupt_frame_size}]",
-        "mov [rsp + {rip}], rax",
-        // Load the code segment selector
-        "mov qword ptr [rsp + {cs}], {kernel_code64}",
-        "mov qword ptr [rsp + {rflags}], 0x200",
-        // Load the flags
-        // "pushfq",
-        // "pop [rsp + {rflags} - 0x8]",
-        // Load the stack pointer
-        "lea rax, [rsp + {interrupt_frame_size}]",
-        "mov [rsp + {rsp}], rax",
-        // Load the stack segment selector
-        "mov qword ptr [rsp + {ss}], {kernel_data64}",
-        // Call the provided function
-        "mov rcx, rdi",
-        "mov rdi, rsp",
-        "call rcx",
-        "ud2",
+extern "C" fn do_fork_executor(entry: usize, arg: usize) {
+    let mut frame: InterruptFrame = unsafe { MaybeUninit::zeroed().assume_init() };
 
-        interrupt_frame_size = const size_of::<InterruptFrame>(),
+    frame.cs = Gdt::KERNEL_CODE64_SELECTOR as u64;
+    frame.ss = Gdt::KERNEL_DATA64_SELECTOR as u64;
 
-        ss = const offset_of!(InterruptFrame, ss),
-        rsp = const offset_of!(InterruptFrame, rsp),
-        r15 = const offset_of!(InterruptFrame, r15),
-        r14 = const offset_of!(InterruptFrame, r14),
-        r13 = const offset_of!(InterruptFrame, r13),
-        r12 = const offset_of!(InterruptFrame, r12),
-        r11 = const offset_of!(InterruptFrame, r11),
-        r10 = const offset_of!(InterruptFrame, r10),
-        r9 = const offset_of!(InterruptFrame, r9),
-        r8 = const offset_of!(InterruptFrame, r8),
-        rsi = const offset_of!(InterruptFrame, rsi),
-        rdi = const offset_of!(InterruptFrame, rdi),
-        rbp = const offset_of!(InterruptFrame, rbp),
-        rdx = const offset_of!(InterruptFrame, rdx),
-        rcx = const offset_of!(InterruptFrame, rcx),
-        rbx = const offset_of!(InterruptFrame, rbx),
-        rax = const offset_of!(InterruptFrame, rax),
-        interrupt_number = const offset_of!(InterruptFrame, interrupt_number),
-        error = const offset_of!(InterruptFrame, error),
-        rip = const offset_of!(InterruptFrame, rip),
-        cs = const offset_of!(InterruptFrame, cs),
-        rflags = const offset_of!(InterruptFrame, rflags),
+    unsafe {
+        core::arch::asm!(
+            "mov [{frame} + {rbx}], rbx",
+            "mov [{frame} + {rbp}], rbp",
+            "mov [{frame} + {r12}], r12",
+            "mov [{frame} + {r13}], r13",
+            "mov [{frame} + {r14}], r14",
+            "mov [{frame} + {r15}], r15",
+            "mov [{frame} + {rsp}], rsp",
 
-        kernel_code64 = const Gdt::KERNEL_CODE64_SELECTOR,
-        kernel_data64 = const Gdt::KERNEL_DATA64_SELECTOR,
-    );
+            "lea rax, [rip + 2f]",
+            "mov [{frame} + {rip}], rax",
+
+            "pushfq",
+            "pop [{frame} + {rflags}]",
+
+            "mov rdi, {frame}",
+            "mov rsi, {arg}",
+            "call {entry}",
+            "ud2",
+
+            "2:",
+
+            out("rax") _,
+            out("rdi") _,
+            out("rsi") _,
+            out("rdx") _,
+            out("rcx") _,
+            out("r8") _,
+            out("r9") _,
+            out("r10") _,
+            out("r11") _,
+
+            frame = in(reg) &raw mut frame,
+            arg = in(reg)  arg,
+            entry = in(reg) entry,
+
+            rbx = const offset_of!(InterruptFrame, rbx),
+            rbp = const offset_of!(InterruptFrame, rbp),
+            r12 = const offset_of!(InterruptFrame, r12),
+            r13 = const offset_of!(InterruptFrame, r13),
+            r14 = const offset_of!(InterruptFrame, r14),
+            r15 = const offset_of!(InterruptFrame, r15),
+            rflags = const offset_of!(InterruptFrame, rflags),
+            rsp = const offset_of!(InterruptFrame, rsp),
+            rip = const offset_of!(InterruptFrame, rip),
+        );
+    }
 }
 
 #[unsafe(naked)]

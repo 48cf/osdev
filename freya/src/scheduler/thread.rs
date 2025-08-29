@@ -73,10 +73,6 @@ impl ScheduleEntity for Thread {
 
         drop(inner);
 
-        crate::println!("Loading context for thread: {:#016x?}", unsafe {
-            &*current
-        });
-
         unsafe {
             (*current).restore();
         }
@@ -106,16 +102,11 @@ impl Blockable for Thread {
         let detached_stack = KernelStack::new();
 
         arch::executor::fork_executor(move |frame| {
-            let thread = thread.clone();
-
-            arch::executor::run_on_stack(&detached_stack, move |_sp| {
+            arch::executor::run_on_stack(&detached_stack, |_sp| {
                 thread.inner.lock().executor.save(frame);
-
                 LOCAL_SCHEDULER.get().commit_reschedule();
             });
         });
-
-        crate::println!("Thread::block returned");
     }
 
     fn unblock(self: &Arc<Self>, token: BlockToken) {

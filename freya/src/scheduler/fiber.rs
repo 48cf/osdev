@@ -71,8 +71,6 @@ impl ScheduleEntity for Fiber {
 
         drop(inner);
 
-        crate::println!("Loading context for fiber: {:#016x?}", unsafe { &*current });
-
         unsafe {
             (*current).restore();
         }
@@ -102,20 +100,11 @@ impl Blockable for Fiber {
         let detached_stack = KernelStack::new();
 
         arch::executor::fork_executor(move |frame| {
-            let fiber = fiber.clone();
-
-            arch::executor::run_on_stack(&detached_stack, move |_sp| {
+            arch::executor::run_on_stack(&detached_stack, |_sp| {
                 fiber.inner.lock().executor.save(frame);
-
                 LOCAL_SCHEDULER.get().commit_reschedule();
             });
-
-            // fiber.inner.lock().executor.save(frame);
-
-            // LOCAL_SCHEDULER.get().commit_reschedule();
         });
-
-        crate::println!("Fiber::block returned");
     }
 
     fn unblock(self: &Arc<Self>, token: BlockToken) {

@@ -190,13 +190,3 @@ pub fn async_block<B: Blockable + 'static, F: Future<Output = T>, T>(
         }
     }
 }
-
-// fn test(thread: Arc<Thread>) {
-//     // let th = Arc::new(Thread {
-//     //     block_token: AtomicU64::new(0),
-//     // });
-
-//     async_block(&thread, async {
-//         // ...
-//     });
-// }

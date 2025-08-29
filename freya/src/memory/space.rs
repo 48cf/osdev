@@ -1,15 +1,16 @@
 use alloc::sync::Arc;
+use spin::Mutex;
 
 use crate::{
     arch::memory::{KernelCursorPolicy, PAGE_SIZE, UserCursorPolicy},
-    memory::{CachingMode, PageAccess, cursor::Cursor},
+    memory::cursor::Cursor,
 };
 
 struct PageSpaceInner;
 
 pub struct PageSpace {
     root_table: u64,
-    inner: (), // SpinMutex<PageSpaceInner>,
+    inner: Mutex<PageSpaceInner>,
 }
 
 impl PageSpace {
@@ -40,34 +41,13 @@ impl KernelPageSpace {
         Self {
             space: PageSpace {
                 root_table: cr3 & !(PAGE_SIZE as u64 - 1),
-                inner: (),
+                inner: Mutex::new(PageSpaceInner),
             },
         }
     }
 
     pub fn cursor(&self, address: u64) -> Cursor<'_, KernelCursorPolicy> {
         Cursor::new(&self.space, address)
-    }
-
-    fn map_single_page(
-        &mut self,
-        virtual_address: u64,
-        physical_address: u64,
-        access: PageAccess,
-        caching: CachingMode,
-    ) {
-        assert!(virtual_address & (PAGE_SIZE as u64 - 1) == 0);
-        assert!(physical_address & (PAGE_SIZE as u64 - 1) == 0);
-
-        let mut cursor = self.cursor(virtual_address);
-
-        cursor.map_page(physical_address, access, caching);
-    }
-
-    fn unmap_single_page(&mut self, virtual_address: u64) -> Option<u64> {
-        let cursor = self.cursor(virtual_address);
-
-        cursor.unmap_page().map(|(address, _status)| address)
     }
 }
 
