@@ -1,0 +1,12 @@
+
+[package]
+name = "freya"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitflags = "2.9.0"
+intrusive-collections = "0.9.7"
+rlsf = "0.2.1"
+seq-macro = "0.3.6"
+spin = "0.10.0"

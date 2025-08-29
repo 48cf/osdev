@@ -1,0 +1,135 @@
+use core::sync::atomic::{AtomicU64, Ordering};
+
+use alloc::sync::Arc;
+use spin::Mutex;
+
+use crate::{
+    arch::{self, executor::ArchExecutor, memory::PAGE_SIZE},
+    memory::{self, CachingMode, KERNEL_PAGE_SPACE, PageAccess, stack::KernelStack},
+    scheduler::{
+        BlockToken, Blockable, Executor, LOCAL_SCHEDULER, ScheduleEntity, ScheduleEntityType,
+        THREAD_ID_ALLOCATOR,
+    },
+};
+
+struct ThreadInner {
+    executor: ArchExecutor,
+}
+
+pub struct Thread {
+    tid: AtomicU64,
+    block_token: AtomicU64,
+    inner: Mutex<ThreadInner>,
+}
+
+impl Thread {
+    pub fn new(entry: extern "C" fn(usize, usize) -> !, arg0: usize, arg1: usize) -> Arc<Self> {
+        const STACK_SIZE: usize = 0x10000;
+
+        let stack_virtual =
+            memory::heap::allocate_virtual_memory(STACK_SIZE).expect("Failed to allocate stack");
+
+        let mut cursor = KERNEL_PAGE_SPACE.cursor(stack_virtual);
+
+        for _ in (0..STACK_SIZE).step_by(PAGE_SIZE) {
+            let physical_page = memory::page::allocate(PAGE_SIZE).expect("Out of physical memory");
+
+            cursor.map_page(
+                physical_page,
+                PageAccess::READ | PageAccess::WRITE,
+                CachingMode::Null,
+            );
+            cursor.advance_page();
+        }
+
+        let tid = THREAD_ID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
+        let mut executor = ArchExecutor::new();
+
+        *executor.ip() = entry as usize;
+        *executor.sp() = stack_virtual as usize + STACK_SIZE;
+        *executor.arg0() = arg0;
+        *executor.arg1() = arg1;
+
+        Arc::new(Self {
+            tid: AtomicU64::new(tid),
+            block_token: AtomicU64::new(0),
+            inner: Mutex::new(ThreadInner { executor }),
+        })
+    }
+}
+
+impl ScheduleEntity for Thread {
+    fn as_thread(self: Arc<Self>) -> Option<Arc<Thread>> {
+        Some(self)
+    }
+
+    fn entity_type(&self) -> ScheduleEntityType {
+        ScheduleEntityType::Thread
+    }
+
+    fn invoke(&self) -> ! {
+        let inner = self.inner.lock();
+        let current = &raw const inner.executor;
+
+        drop(inner);
+
+        crate::println!("Loading context for thread: {:#016x?}", unsafe {
+            &*current
+        });
+
+        unsafe {
+            (*current).restore();
+        }
+    }
+}
+
+const UNBLOCKED_BIT: u64 = 1 << 0;
+const NEXT_BLOCK_TOKEN: u64 = 1 << 1;
+
+impl Blockable for Thread {
+    fn next_block_token(&self) -> BlockToken {
+        let token = self.block_token.load(Ordering::Relaxed) & !UNBLOCKED_BIT;
+
+        self.block_token.store(
+            token.checked_add(NEXT_BLOCK_TOKEN).unwrap(),
+            Ordering::Release,
+        );
+
+        BlockToken(token + NEXT_BLOCK_TOKEN)
+    }
+
+    fn block(self: &Arc<Self>, _token: BlockToken) {
+        let thread = self.clone();
+
+        LOCAL_SCHEDULER.get().reschedule();
+
+        let detached_stack = KernelStack::new();
+
+        arch::executor::fork_executor(move |frame| {
+            let thread = thread.clone();
+
+            arch::executor::run_on_stack(&detached_stack, move |_sp| {
+                thread.inner.lock().executor.save(frame);
+
+                LOCAL_SCHEDULER.get().commit_reschedule();
+            });
+        });
+
+        crate::println!("Thread::block returned");
+    }
+
+    fn unblock(self: &Arc<Self>, token: BlockToken) {
+        if self
+            .block_token
+            .compare_exchange(
+                token.0,
+                token.0 | UNBLOCKED_BIT,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            LOCAL_SCHEDULER.get().schedule(self.clone());
+        }
+    }
+}
