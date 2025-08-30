@@ -5,4 +5,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hel = { path = "../hel", features = ["global_alloc", "no_std"] }
+hel = { path = "../hel", features = ["global_alloc", "hel_writer", "no_std"] }

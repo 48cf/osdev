@@ -13,7 +13,7 @@ mod memory;
 mod per_cpu;
 mod scheduler;
 
-use core::{panic::PanicInfo, ptr::NonNull};
+use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
 
 use alloc::sync::Arc;
 
@@ -22,10 +22,9 @@ use crate::{
     boot::eir::{EirInfo, EirModule},
     memory::{
         CachingMode, MEMORY_LAYOUT_NOTE, PageAccess,
-        client::ClientPageSpace,
+        client::{ClientPageSpace, MapFlags},
         kernel::KERNEL_PAGE_SPACE,
-        space::VirtualSpace,
-        view::{ImmediateMemory, MemoryView},
+        view::{ImmediateMemory, MemorySlice, MemoryView},
     },
     scheduler::{Fiber, LOCAL_SCHEDULER, Thread},
 };
@@ -55,37 +54,6 @@ extern "C" fn kernel_main() -> ! {
     scheduler.schedule(Fiber::run(init_fiber));
     scheduler.force_reschedule();
     scheduler.commit_reschedule();
-
-    // scheduler.schedule(Fiber::run(|| {
-    //     let fiber = LOCAL_SCHEDULER
-    //         .get()
-    //         .current()
-    //         .and_then(|e| e.as_fiber())
-    //         .unwrap();
-
-    //     scheduler::async_block(&fiber, async {
-    //         let mut i = 0;
-    //         loop {
-    //             tx.send(i).await.unwrap();
-    //             i += 1;
-    //         }
-    //     });
-    // }));
-
-    // scheduler.schedule(Fiber::run(|| {
-    //     let fiber = LOCAL_SCHEDULER
-    //         .get()
-    //         .current()
-    //         .and_then(|e| e.as_fiber())
-    //         .unwrap();
-
-    //     scheduler::async_block(&fiber, async {
-    //         loop {
-    //             let x = rx.recv().await.unwrap();
-    //             println!("Fiber received: {}", x);
-    //         }
-    //     });
-    // }));
 }
 
 fn init_fiber() {
@@ -119,36 +87,82 @@ fn init_fiber() {
         core::slice::from_raw_parts(initrd_virtual as *const u8, module_info.length as usize)
     };
 
-    let _freya_bin = cpio_reader::iter_files(initrd)
-        .find(|entry| entry.name() == "freya")
-        .expect("No freya in initrd");
-
     let scheduler = LOCAL_SCHEDULER.get();
     let this_fiber = scheduler.current().and_then(|e| e.as_fiber()).unwrap();
 
-    let memory = Arc::new(ImmediateMemory::new(0x1000));
-
-    scheduler::async_block(&this_fiber, async {
-        memory.copy_to(0, &[0x0F, 0x0B]).await.unwrap();
-    });
+    let freya_bytes = cpio_reader::iter_files(initrd)
+        .find(|entry| entry.name() == "freya")
+        .map(|entry| entry.file())
+        .expect("No freya in initrd");
 
     let space = ClientPageSpace::new();
 
-    scheduler::async_block(
-        &this_fiber,
-        space.map_present_pages(
-            &memory,
-            0x1000,
-            0,
-            0x1000,
-            PageAccess::READ | PageAccess::EXECUTE,
-            CachingMode::Null,
-        ),
-    );
+    let (ip, sp) = scheduler::async_block(&this_fiber, async {
+        let memory = Arc::new(ImmediateMemory::new(freya_bytes.len()));
+        let stack_memory = Arc::new(ImmediateMemory::new(0x10000));
 
-    let thread = Thread::new(ArchExecutor::new_user_context(0x1000, 0, 0, 0), space);
+        memory.copy_to(0, freya_bytes).await.unwrap();
 
-    scheduler.schedule(thread);
+        let freya_elf = goblin::elf::Elf::parse(freya_bytes).expect("Failed to parse freya ELF");
+
+        for phdr in freya_elf
+            .program_headers
+            .iter()
+            .filter(|phdr| phdr.p_type == goblin::elf::program_header::PT_LOAD)
+        {
+            let misalign = phdr.p_vaddr & (PAGE_SIZE as u64 - 1);
+            let virtual_address = phdr.p_vaddr - misalign;
+            let offset = (phdr.p_offset - misalign) as usize;
+            let length =
+                (phdr.p_memsz as usize + misalign as usize + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
+
+            let view = MemorySlice::new(memory.clone(), offset, length, CachingMode::Null);
+            let mut access = PageAccess::empty();
+
+            if phdr.p_flags & goblin::elf::program_header::PF_R != 0 {
+                access |= PageAccess::READ;
+            }
+
+            if phdr.p_flags & goblin::elf::program_header::PF_W != 0 {
+                access |= PageAccess::WRITE;
+            }
+
+            if phdr.p_flags & goblin::elf::program_header::PF_X != 0 {
+                access |= PageAccess::EXECUTE;
+            }
+
+            space
+                .map(
+                    view,
+                    NonZeroU64::new(virtual_address),
+                    0,
+                    length,
+                    MapFlags::FIXED,
+                    access,
+                )
+                .await
+                .unwrap();
+        }
+
+        let sp = space
+            .map(
+                MemorySlice::new(stack_memory, 0, 0x10000, CachingMode::Null),
+                None,
+                0,
+                0x10000,
+                MapFlags::PREFER_TOP,
+                PageAccess::READ | PageAccess::WRITE,
+            )
+            .await
+            .unwrap();
+
+        (freya_elf.entry, sp + 0x10000)
+    });
+
+    scheduler.schedule(Thread::new(
+        ArchExecutor::new_user_context(ip as usize, sp as usize, 0, 0),
+        space,
+    ));
 }
 
 #[panic_handler]

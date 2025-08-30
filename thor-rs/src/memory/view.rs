@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use async_trait::async_trait;
 use hashbrown::HashMap;
 
@@ -7,6 +7,46 @@ use crate::{
     arch::memory::PAGE_SIZE,
     memory::{self, CachingMode, accessor::PageAccessor},
 };
+
+#[derive(Clone)]
+pub struct MemorySlice {
+    view: Arc<dyn MemoryView>,
+    offset: usize,
+    length: usize,
+    caching_mode: CachingMode,
+}
+
+impl MemorySlice {
+    pub fn new(
+        view: Arc<dyn MemoryView>,
+        offset: usize,
+        length: usize,
+        caching_mode: CachingMode,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            view,
+            offset,
+            length,
+            caching_mode,
+        })
+    }
+
+    pub fn view(&self) -> &Arc<dyn MemoryView> {
+        &self.view
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn length(&self) -> usize {
+        self.length
+    }
+
+    pub fn caching_mode(&self) -> CachingMode {
+        self.caching_mode
+    }
+}
 
 #[async_trait]
 pub trait MemoryView: Sync + Send {

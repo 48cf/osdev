@@ -1,6 +1,6 @@
 use crate::{
     arch::memory::PAGE_SIZE,
-    memory::{self, kernel::KERNEL_PAGE_SPACE},
+    memory::{self, CachingMode, PageAccess, kernel::KERNEL_PAGE_SPACE},
 };
 
 pub struct KernelStack {
@@ -10,7 +10,7 @@ pub struct KernelStack {
 }
 
 impl KernelStack {
-    const SIZE: usize = 0x4000;
+    const SIZE: usize = 0x10000;
 
     pub fn new() -> Self {
         let virtual_address =
@@ -22,11 +22,7 @@ impl KernelStack {
         for _ in (PAGE_SIZE..Self::SIZE).step_by(PAGE_SIZE) {
             let physical_page = memory::page::allocate(PAGE_SIZE).expect("Out of physical memory");
 
-            cursor.map_page(
-                physical_page,
-                memory::PageAccess::READ | memory::PageAccess::WRITE,
-                memory::CachingMode::Null,
-            );
+            cursor.map_page(physical_page, PageAccess::READ_WRITE, CachingMode::Null);
             cursor.advance_page();
         }
 

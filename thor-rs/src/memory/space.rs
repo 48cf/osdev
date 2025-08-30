@@ -13,8 +13,10 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 struct PageSpaceInner;
 
+#[derive(Debug)]
 pub struct PageSpace {
     root_table: u64,
     inner: Mutex<PageSpaceInner>,
@@ -24,7 +26,7 @@ pub struct PageSpace {
 pub trait VirtualSpace {
     async fn map_present_pages(
         &self,
-        memory_view: &Arc<impl MemoryView>,
+        memory_view: &Arc<dyn MemoryView>,
         virtual_address: u64,
         offset: usize,
         length: usize,
@@ -33,7 +35,7 @@ pub trait VirtualSpace {
     );
     async fn fault_page(
         &self,
-        memory_view: &Arc<impl MemoryView>,
+        memory_view: &Arc<dyn MemoryView>,
         virtual_address: u64,
         offset: usize,
         access: PageAccess,
@@ -91,7 +93,7 @@ impl PageSpace {
 // out a way to not do this and have this be fully synchronous
 pub async fn map_present_pages_with_cursor<P: CursorPolicy>(
     space: &PageSpace,
-    memory_view: &Arc<impl MemoryView>,
+    memory_view: &Arc<dyn MemoryView>,
     virtual_address: u64,
     offset: usize,
     length: usize,

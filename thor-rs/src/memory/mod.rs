@@ -101,6 +101,10 @@ bitflags! {
         const READ = 1 << 0;
         const WRITE = 1 << 1;
         const EXECUTE = 1 << 2;
+
+        const READ_WRITE = Self::READ.bits() | Self::WRITE.bits();
+        const READ_EXECUTE = Self::READ.bits() | Self::EXECUTE.bits();
+        const READ_WRITE_EXECUTE = Self::READ.bits() | Self::WRITE.bits() | Self::EXECUTE.bits();
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
