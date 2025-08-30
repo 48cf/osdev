@@ -4,8 +4,9 @@ use alloc::sync::Arc;
 use spin::Mutex;
 
 use crate::{
-    arch::{self, executor::ArchExecutor, memory::PAGE_SIZE},
-    memory::{self, CachingMode, KERNEL_PAGE_SPACE, PageAccess, stack::KernelStack},
+    arch::{self, executor::ArchExecutor, user::ArchUserContext},
+    memory::client::ClientPageSpace,
+    per_cpu::CPU_DATA,
     scheduler::{
         BlockToken, Blockable, Executor, LOCAL_SCHEDULER, ScheduleEntity, ScheduleEntityType,
         THREAD_ID_ALLOCATOR,
@@ -13,7 +14,9 @@ use crate::{
 };
 
 struct ThreadInner {
+    context: ArchUserContext,
     executor: ArchExecutor,
+    space: Arc<ClientPageSpace>,
 }
 
 pub struct Thread {
@@ -23,37 +26,17 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn new(entry: extern "C" fn(usize, usize) -> !, arg0: usize, arg1: usize) -> Arc<Self> {
-        const STACK_SIZE: usize = 0x10000;
-
-        let stack_virtual =
-            memory::heap::allocate_virtual_memory(STACK_SIZE).expect("Failed to allocate stack");
-
-        let mut cursor = KERNEL_PAGE_SPACE.cursor(stack_virtual);
-
-        for _ in (0..STACK_SIZE).step_by(PAGE_SIZE) {
-            let physical_page = memory::page::allocate(PAGE_SIZE).expect("Out of physical memory");
-
-            cursor.map_page(
-                physical_page,
-                PageAccess::READ | PageAccess::WRITE,
-                CachingMode::Null,
-            );
-            cursor.advance_page();
-        }
-
+    pub fn new(executor: ArchExecutor, space: Arc<ClientPageSpace>) -> Arc<Self> {
         let tid = THREAD_ID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
-        let mut executor = ArchExecutor::new();
-
-        *executor.ip() = entry as usize;
-        *executor.sp() = stack_virtual as usize + STACK_SIZE;
-        *executor.arg0() = arg0;
-        *executor.arg1() = arg1;
 
         Arc::new(Self {
             tid: AtomicU64::new(tid),
             block_token: AtomicU64::new(0),
-            inner: Mutex::new(ThreadInner { executor }),
+            inner: Mutex::new(ThreadInner {
+                context: ArchUserContext::new(CPU_DATA.get()),
+                executor,
+                space,
+            }),
         })
     }
 }
@@ -69,6 +52,10 @@ impl ScheduleEntity for Thread {
 
     fn invoke(&self) -> ! {
         let inner = self.inner.lock();
+
+        inner.context.activate();
+        inner.space.space().activate();
+
         let current = &raw const inner.executor;
 
         drop(inner);
@@ -99,10 +86,8 @@ impl Blockable for Thread {
 
         LOCAL_SCHEDULER.get().reschedule();
 
-        let detached_stack = KernelStack::new();
-
         arch::executor::fork_executor(move |frame| {
-            arch::executor::run_on_stack(&detached_stack, |_sp| {
+            arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
                 thread.inner.lock().executor.save(frame);
                 LOCAL_SCHEDULER.get().commit_reschedule();
             });

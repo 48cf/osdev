@@ -3,7 +3,11 @@ use core::{
     mem::{MaybeUninit, offset_of},
 };
 
-use crate::{InterruptFrame, arch::gdt::Gdt, memory::stack::KernelStack, scheduler::Executor};
+use crate::{
+    arch::{gdt::Gdt, interrupts::ArchInterruptFrame},
+    memory::stack::KernelStack,
+    scheduler::Executor,
+};
 
 #[derive(Debug)]
 pub struct GeneralRegisters {
@@ -55,18 +59,32 @@ impl ArchExecutor {
                 r14: 0,
                 r15: 0,
                 rip: 0,
-                cs: 0x8,
-                rflags: 0x200, // Enable interrupts
+                cs: Gdt::KERNEL_CODE64_SELECTOR as usize,
+                rflags: 0x2, // Enable interrupts
                 rsp: 0,
-                ss: 0x10,
+                ss: Gdt::KERNEL_DATA64_SELECTOR as usize,
             },
             // fp_state: core::ptr::null_mut(),
         }
     }
+
+    pub fn new_user_context(ip: usize, sp: usize, arg0: usize, arg1: usize) -> Self {
+        let mut executor = Self::new();
+
+        executor.general.rip = ip;
+        executor.general.rsp = sp;
+        executor.general.rdi = arg0;
+        executor.general.rsi = arg1;
+        executor.general.rflags = 0x2; // Enable interrupts and set the reserved bit
+        executor.general.cs = Gdt::USER_CODE64_SELECTOR as usize;
+        executor.general.ss = Gdt::USER_DATA64_SELECTOR as usize;
+
+        executor
+    }
 }
 
 impl Executor for ArchExecutor {
-    fn save(&mut self, frame: &InterruptFrame) {
+    fn save(&mut self, frame: &ArchInterruptFrame) {
         self.general.rax = frame.rax as usize;
         self.general.rbx = frame.rbx as usize;
         self.general.rcx = frame.rcx as usize;
@@ -118,9 +136,9 @@ impl Executor for ArchExecutor {
     }
 }
 
-pub fn fork_executor<F: FnMut(&InterruptFrame) -> !>(func: F) {
-    extern "C" fn fork_executor_entry<F: FnMut(&InterruptFrame) -> !>(
-        frame: *const InterruptFrame,
+pub fn fork_executor<F: FnMut(&ArchInterruptFrame) -> !>(func: F) {
+    extern "C" fn fork_executor_entry<F: FnMut(&ArchInterruptFrame) -> !>(
+        frame: *const ArchInterruptFrame,
         arg: usize,
     ) -> ! {
         let func: &mut F = unsafe { &mut *(arg as *mut F) };
@@ -256,7 +274,7 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
 }
 
 extern "C" fn do_fork_executor(entry: usize, arg: usize) {
-    let mut frame: InterruptFrame = unsafe { MaybeUninit::zeroed().assume_init() };
+    let mut frame: ArchInterruptFrame = unsafe { MaybeUninit::zeroed().assume_init() };
 
     frame.cs = Gdt::KERNEL_CODE64_SELECTOR as u64;
     frame.ss = Gdt::KERNEL_DATA64_SELECTOR as u64;
@@ -298,15 +316,15 @@ extern "C" fn do_fork_executor(entry: usize, arg: usize) {
             arg = in(reg)  arg,
             entry = in(reg) entry,
 
-            rbx = const offset_of!(InterruptFrame, rbx),
-            rbp = const offset_of!(InterruptFrame, rbp),
-            r12 = const offset_of!(InterruptFrame, r12),
-            r13 = const offset_of!(InterruptFrame, r13),
-            r14 = const offset_of!(InterruptFrame, r14),
-            r15 = const offset_of!(InterruptFrame, r15),
-            rflags = const offset_of!(InterruptFrame, rflags),
-            rsp = const offset_of!(InterruptFrame, rsp),
-            rip = const offset_of!(InterruptFrame, rip),
+            rbx = const offset_of!(ArchInterruptFrame, rbx),
+            rbp = const offset_of!(ArchInterruptFrame, rbp),
+            r12 = const offset_of!(ArchInterruptFrame, r12),
+            r13 = const offset_of!(ArchInterruptFrame, r13),
+            r14 = const offset_of!(ArchInterruptFrame, r14),
+            r15 = const offset_of!(ArchInterruptFrame, r15),
+            rflags = const offset_of!(ArchInterruptFrame, rflags),
+            rsp = const offset_of!(ArchInterruptFrame, rsp),
+            rip = const offset_of!(ArchInterruptFrame, rip),
         );
     }
 }

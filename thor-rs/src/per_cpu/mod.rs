@@ -1,10 +1,10 @@
 mod cpu_data;
 
-pub use cpu_data::CpuData;
+pub use cpu_data::{CPU_DATA, CpuData};
 
 use core::mem::MaybeUninit;
 
-use crate::{arch, boot::elf_note::PerCpuRegion, elf_note, per_cpu::cpu_data::CPU_DATA};
+use crate::{arch, boot::elf_note::PerCpuRegion, elf_note};
 
 #[macro_export]
 macro_rules! define_percpu {
@@ -52,18 +52,18 @@ impl<T: Sized> PerCpu<T> {
         }
     }
 
-    pub fn get(&self) -> &T {
+    pub fn get(&self) -> &'static T {
         self.get_for_cpu(arch::cpu::get_cpu_data())
     }
 
-    pub fn get_for_cpu(&self, cpu_data: &CpuData) -> &T {
+    pub fn get_for_cpu(&self, cpu_data: &CpuData) -> &'static T {
         unsafe {
             let ptr = self.as_ptr(cpu_data);
             (*ptr).assume_init_ref()
         }
     }
 
-    pub fn get_for_cpu_by_id(&self, cpu_id: usize) -> &T {
+    pub fn get_for_cpu_by_id(&self, cpu_id: usize) -> &'static T {
         let size = &raw const LD_PERCPU_END as usize - &raw const LD_PERCPU_START as usize;
         let ptr = (&raw const LD_PERCPU_START as usize + self.offset() + cpu_id * size)
             as *const MaybeUninit<T>;
@@ -106,6 +106,7 @@ pub fn init_for_boot_processor() {
     let cpu_data = unsafe { (*ptr).write(CpuData::new(0)) };
 
     arch::cpu::setup_cpu_context(cpu_data.arch_data());
+    arch::cpu::init_early();
 
     init_for_cpu(cpu_data);
 }

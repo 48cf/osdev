@@ -1,6 +1,6 @@
 use crate::{
     arch::memory::PAGE_SIZE,
-    memory::{self, KERNEL_PAGE_SPACE},
+    memory::{self, kernel::KERNEL_PAGE_SPACE},
 };
 
 pub struct KernelStack {

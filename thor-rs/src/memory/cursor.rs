@@ -38,7 +38,7 @@ pub trait CursorPolicy {
     fn pte_table_new() -> u64;
 }
 
-pub struct Cursor<'a, P: CursorPolicy>
+pub struct PageCursor<'a, P: CursorPolicy>
 where
     [PageAccessor; P::MAX_LEVELS]: Sized,
 {
@@ -48,7 +48,7 @@ where
     address: u64,
 }
 
-impl<'a, P: CursorPolicy> Cursor<'a, P>
+impl<'a, P: CursorPolicy> PageCursor<'a, P>
 where
     [PageAccessor; P::MAX_LEVELS]: Sized,
 {
@@ -67,6 +67,10 @@ where
             initial_level,
             address,
         }
+    }
+
+    pub fn address(&self) -> u64 {
+        self.address
     }
 
     pub fn move_to(&mut self, address: u64) {

@@ -6,6 +6,7 @@ use spin::Mutex;
 use crate::{
     arch::{self, executor::ArchExecutor},
     memory::stack::KernelStack,
+    per_cpu::CPU_DATA,
     scheduler::{
         BlockToken, Blockable, Executor, LOCAL_SCHEDULER, ScheduleEntity, ScheduleEntityType,
     },
@@ -97,10 +98,8 @@ impl Blockable for Fiber {
 
         LOCAL_SCHEDULER.get().force_reschedule();
 
-        let detached_stack = KernelStack::new();
-
         arch::executor::fork_executor(move |frame| {
-            arch::executor::run_on_stack(&detached_stack, |_sp| {
+            arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
                 fiber.inner.lock().executor.save(frame);
                 LOCAL_SCHEDULER.get().commit_reschedule();
             });

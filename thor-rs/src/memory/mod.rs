@@ -1,9 +1,12 @@
 pub mod accessor;
+pub mod client;
 pub mod cursor;
 pub mod heap;
+pub mod kernel;
 pub mod page;
 pub mod space;
 pub mod stack;
+pub mod view;
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -13,17 +16,16 @@ use core::{
 
 use bitflags::bitflags;
 use rlsf::Tlsf;
-use spin::{Lazy, Mutex};
+use spin::Mutex;
 
 use crate::{
-    arch::memory::PAGE_SIZE, boot::elf_note::MemoryLayout, elf_note, memory::space::KernelPageSpace,
+    arch::memory::PAGE_SIZE, boot::elf_note::MemoryLayout, elf_note,
+    memory::kernel::KERNEL_PAGE_SPACE,
 };
 
 elf_note! {
     pub static MEMORY_LAYOUT_NOTE: MemoryLayout = MemoryLayout::new();
 }
-
-pub static KERNEL_PAGE_SPACE: Lazy<KernelPageSpace> = Lazy::new(|| KernelPageSpace::new());
 
 #[global_allocator]
 static ALLOCATOR: KernelAllocator = KernelAllocator {
@@ -94,12 +96,14 @@ unsafe impl GlobalAlloc for KernelAllocator {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct PageAccess: u32 {
         const READ = 1 << 0;
         const WRITE = 1 << 1;
         const EXECUTE = 1 << 2;
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct PageStatus: u8 {
         const PRESENT = 1 << 0;
         const DIRTY = 1 << 1;
@@ -115,4 +119,19 @@ pub enum CachingMode {
     WriteBack,
     Mmio,
     MmioNonPosted,
+}
+
+impl CachingMode {
+    pub fn override_with(self, requested: CachingMode) -> Self {
+        match requested {
+            CachingMode::WriteCombine => {
+                if self == CachingMode::Uncached {
+                    CachingMode::WriteCombine
+                } else {
+                    requested
+                }
+            }
+            _ => self,
+        }
+    }
 }

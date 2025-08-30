@@ -3,7 +3,6 @@ mod idle;
 mod thread;
 
 pub use fiber::Fiber;
-pub use idle::IdleTask;
 pub use thread::Thread;
 
 use core::{
@@ -14,7 +13,7 @@ use core::{
 use alloc::{collections::vec_deque::VecDeque, sync::Arc, task::Wake};
 use spin::Mutex;
 
-use crate::{InterruptFrame, scheduler::idle::GLOBAL_IDLE_TASK};
+use crate::{arch::interrupts::ArchInterruptFrame, scheduler::idle::GLOBAL_IDLE_TASK};
 
 static THREAD_ID_ALLOCATOR: AtomicU64 = AtomicU64::new(1);
 
@@ -90,7 +89,10 @@ impl Scheduler {
 
     pub fn force_reschedule(&self) {
         let mut inner = self.inner.lock();
-        let next = inner.queue.pop_front().unwrap();
+        let next = inner.queue.pop_front().unwrap_or_else(|| {
+            // If the queue is empty, return the idle task.
+            GLOBAL_IDLE_TASK.clone()
+        });
 
         inner.current = Some(next);
     }
@@ -108,7 +110,7 @@ impl Scheduler {
 }
 
 pub trait Executor {
-    fn save(&mut self, frame: &InterruptFrame);
+    fn save(&mut self, frame: &ArchInterruptFrame);
     fn restore(&self) -> !;
 
     fn ip(&mut self) -> &mut usize;
@@ -144,7 +146,7 @@ pub trait ScheduleEntity: Sync + Send {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockToken(u64);
 
-pub trait Blockable: Sync + Send {
+pub trait Blockable: ScheduleEntity + Sync + Send {
     fn next_block_token(&self) -> BlockToken;
     fn block(self: &Arc<Self>, token: BlockToken);
     fn unblock(self: &Arc<Self>, token: BlockToken);
