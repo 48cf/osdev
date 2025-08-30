@@ -87,6 +87,8 @@ impl PageSpace {
     }
 }
 
+// TODO: Only reason this is async is to await the lock, we should figure
+// out a way to not do this and have this be fully synchronous
 pub async fn map_present_pages_with_cursor<P: CursorPolicy>(
     space: &PageSpace,
     memory_view: &Arc<impl MemoryView>,
