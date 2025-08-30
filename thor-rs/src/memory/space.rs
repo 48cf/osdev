@@ -104,7 +104,7 @@ pub async fn map_present_pages_with_cursor<P: CursorPolicy>(
     assert!(offset & (PAGE_SIZE - 1) == 0);
     assert!(length & (PAGE_SIZE - 1) == 0);
 
-    let contents = memory_view.base().lock().await;
+    let contents = memory_view.base().contents().await;
     let mut cursor = PageCursor::<P>::new(space, virtual_address);
 
     while cursor.address() < virtual_address + length as u64 {

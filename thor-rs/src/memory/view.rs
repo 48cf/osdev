@@ -14,14 +14,71 @@ pub trait MemoryView: Sync + Send {
 
     async fn fault_in(&self, offset: usize) -> Result<()>;
 
-    // fn peek_range(&self, offset: usize) -> Option<PhysicalRange>;
+    async fn copy_to(&self, offset: usize, buffer: &[u8]) -> Result<()> {
+        let mut progress = 0;
 
-    // async fn lock_range(&self, offset: usize, length: usize);
-    // async fn unlock_range(&self, offset: usize, length: usize);
-    // async fn fetch_range(&self, offset: usize) -> Result<PhysicalRange>;
+        while progress < buffer.len() {
+            let offset = offset + progress;
 
-    async fn copy_to(&self, offset: usize, buffer: &[u8]) -> Result<()>;
-    async fn copy_from(&self, offset: usize, buffer: &mut [u8]) -> Result<()>;
+            self.fault_in(offset).await?;
+
+            let (physical_address, _) = self
+                .base()
+                .contents()
+                .await
+                .get(&(offset / PAGE_SIZE))
+                .copied()
+                .ok_or(Error::Fault)?;
+
+            let accessor = PageAccessor::new(physical_address);
+            let page_offset = offset & (PAGE_SIZE - 1);
+            let chunk_size = (PAGE_SIZE - page_offset).min(buffer.len() - progress);
+
+            unsafe {
+                accessor
+                    .as_mut::<u8>()
+                    .add(page_offset)
+                    .copy_from_nonoverlapping(buffer.as_ptr().add(progress), chunk_size);
+            }
+
+            progress += chunk_size;
+        }
+
+        Ok(())
+    }
+
+    async fn copy_from(&self, offset: usize, buffer: &mut [u8]) -> Result<()> {
+        let mut progress = 0;
+
+        while progress < buffer.len() {
+            let offset = offset + progress;
+
+            self.fault_in(offset).await?;
+
+            let (physical_address, _) = self
+                .base()
+                .contents()
+                .await
+                .get(&(offset / PAGE_SIZE))
+                .copied()
+                .ok_or(Error::Fault)?;
+
+            let accessor = PageAccessor::new(physical_address);
+            let page_offset = offset & (PAGE_SIZE - 1);
+            let chunk_size = (PAGE_SIZE - page_offset).min(buffer.len() - progress);
+
+            unsafe {
+                accessor
+                    .as_mut::<u8>()
+                    .add(page_offset)
+                    .copy_to_nonoverlapping(buffer.as_mut_ptr().add(progress), chunk_size);
+            }
+
+            progress += chunk_size;
+        }
+
+        Ok(())
+    }
 }
 
 type MemoryViewContents = HashMap<usize, (u64, CachingMode)>;
@@ -37,11 +94,11 @@ impl MemoryViewBase {
         }
     }
 
-    pub async fn lock(&self) -> async_lock::RwLockReadGuard<'_, MemoryViewContents> {
+    pub async fn contents(&self) -> async_lock::RwLockReadGuard<'_, MemoryViewContents> {
         self.contents.read().await
     }
 
-    pub async fn lock_write(&self) -> async_lock::RwLockWriteGuard<'_, MemoryViewContents> {
+    pub async fn contents_mut(&self) -> async_lock::RwLockWriteGuard<'_, MemoryViewContents> {
         self.contents.write().await
     }
 }
@@ -87,64 +144,5 @@ impl MemoryView for ImmediateMemory {
         } else {
             Ok(())
         }
-    }
-
-    // fn peek_range(&self, offset: usize) -> Option<PhysicalRange> {
-    //     let pages = self.pages.lock();
-    //     let page_index = offset / PAGE_SIZE;
-    //     let page_offset = offset % PAGE_SIZE;
-
-    //     pages.get(page_index).map(|address| {
-    //         let address = address + page_offset as u64;
-    //         let remaining_length = PAGE_SIZE - page_offset;
-
-    //         (address, remaining_length, CachingMode::Null)
-    //     })
-    // }
-
-    // async fn lock_range(&self, _offset: usize, _length: usize) {
-    //     // TODO
-    // }
-
-    // async fn unlock_range(&self, _offset: usize, _length: usize) {
-    //     // TODO
-    // }
-
-    // async fn fetch_range(&self, offset: usize) -> Result<PhysicalRange> {
-    //     self.peek_range(offset).ok_or(Error::Fault)
-    // }
-
-    async fn copy_to(&self, offset: usize, buffer: &[u8]) -> Result<()> {
-        let mut progress = 0;
-
-        while progress < buffer.len() {
-            self.fault_in(offset + progress).await?;
-
-            let (physical_address, _) = self
-                .base()
-                .lock()
-                .await
-                .get(&((offset + progress) / PAGE_SIZE))
-                .copied()
-                .ok_or(Error::Fault)?;
-
-            let accessor = PageAccessor::new(physical_address & !(PAGE_SIZE as u64 - 1));
-            let chunk_size = PAGE_SIZE.min(buffer.len() - progress);
-
-            unsafe {
-                accessor
-                    .as_mut::<u8>()
-                    .add(physical_address as usize & (PAGE_SIZE - 1))
-                    .copy_from_nonoverlapping(buffer.as_ptr().add(progress), chunk_size);
-            }
-
-            progress += chunk_size;
-        }
-
-        Ok(())
-    }
-
-    async fn copy_from(&self, _offset: usize, _buffer: &mut [u8]) -> Result<()> {
-        todo!()
     }
 }

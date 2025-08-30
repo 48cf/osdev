@@ -22,17 +22,12 @@ pub struct Fiber {
     stack: KernelStack,
 }
 
-extern "C" fn fiber_entry<F: FnMut()>(arg0: usize, _arg1: usize) -> ! {
-    let raw = arg0 as *mut F;
-    let func = unsafe { &mut *raw };
+extern "C" fn fiber_entry<F: FnMut()>(arg0: usize, _: usize) -> ! {
+    let mut func = unsafe { Box::from_raw(arg0 as *mut F) };
 
     (func)();
 
-    unsafe {
-        drop(Box::from_raw(raw));
-    }
-
-    crate::println!("TODO: Exit fibers");
+    crate::println!("Fix exiting fibers");
 
     LOCAL_SCHEDULER.get().force_reschedule();
     LOCAL_SCHEDULER.get().commit_reschedule();

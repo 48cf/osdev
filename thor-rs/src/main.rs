@@ -119,7 +119,7 @@ fn init_fiber() {
         core::slice::from_raw_parts(initrd_virtual as *const u8, module_info.length as usize)
     };
 
-    let freya_bin = cpio_reader::iter_files(initrd)
+    let _freya_bin = cpio_reader::iter_files(initrd)
         .find(|entry| entry.name() == "freya")
         .expect("No freya in initrd");
 
@@ -150,32 +150,6 @@ fn init_fiber() {
 
     scheduler.schedule(thread);
 }
-
-// extern "C" fn thread_main(_arg0: usize, _arg1: usize) -> ! {
-//     println!("Thread started with args: {}, {}", _arg0, _arg1);
-
-//     let thread = LOCAL_SCHEDULER
-//         .get()
-//         .current()
-//         .and_then(|entity| entity.as_thread())
-//         .expect("No current thread");
-
-//     println!("About to block on an async operation");
-
-//     thread.block(thread.next_block_token());
-
-//     scheduler::async_block(&thread, async {
-//         println!("Thread is running asynchronously");
-//     });
-
-//     println!("Thread finished, halting");
-
-//     loop {
-//         unsafe {
-//             core::arch::asm!("hlt");
-//         }
-//     }
-// }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -227,7 +201,6 @@ pub enum Error {
     NoMemory,
     NoHardwareSupport,
     HardwareBroken,
-    // Internal error: the remote has violated the IPC protocol.
     ProtocolViolation,
     SpuriousOperation,
     AlreadyExists,
