@@ -100,11 +100,11 @@ impl Executor for ArchExecutor {
         self.general.r13 = frame.r13 as usize;
         self.general.r14 = frame.r14 as usize;
         self.general.r15 = frame.r15 as usize;
-        self.general.rip = frame.rip as usize;
-        self.general.cs = frame.cs as usize;
-        self.general.rflags = frame.rflags as usize;
-        self.general.rsp = frame.rsp as usize;
-        self.general.ss = frame.ss as usize;
+        self.general.rip = frame.iret.rip as usize;
+        self.general.cs = frame.iret.cs as usize;
+        self.general.rflags = frame.iret.rflags as usize;
+        self.general.rsp = frame.iret.rsp as usize;
+        self.general.ss = frame.iret.ss as usize;
     }
 
     fn restore(&self) -> ! {
@@ -247,6 +247,11 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
         "push [rdi + {cs}]",
         "push [rdi + {rip}]",
 
+        "cmp qword ptr [rdi + {cs}], {kernel_cs}",
+        "je 2f",
+        "swapgs",
+        "2:",
+
         "mov rdi, [rdi + {rdi}]",
         "iretq",
 
@@ -270,14 +275,16 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
         rflags = const offset_of!(GeneralRegisters, rflags),
         rsp = const offset_of!(GeneralRegisters, rsp),
         ss = const offset_of!(GeneralRegisters, ss),
+
+        kernel_cs = const Gdt::KERNEL_CODE64_SELECTOR as u16,
     );
 }
 
 extern "C" fn do_fork_executor(entry: usize, arg: usize) {
     let mut frame: ArchInterruptFrame = unsafe { MaybeUninit::zeroed().assume_init() };
 
-    frame.cs = Gdt::KERNEL_CODE64_SELECTOR as u64;
-    frame.ss = Gdt::KERNEL_DATA64_SELECTOR as u64;
+    frame.iret.cs = Gdt::KERNEL_CODE64_SELECTOR as u64;
+    frame.iret.ss = Gdt::KERNEL_DATA64_SELECTOR as u64;
 
     unsafe {
         core::arch::asm!(
@@ -322,9 +329,9 @@ extern "C" fn do_fork_executor(entry: usize, arg: usize) {
             r13 = const offset_of!(ArchInterruptFrame, r13),
             r14 = const offset_of!(ArchInterruptFrame, r14),
             r15 = const offset_of!(ArchInterruptFrame, r15),
-            rflags = const offset_of!(ArchInterruptFrame, rflags),
-            rsp = const offset_of!(ArchInterruptFrame, rsp),
-            rip = const offset_of!(ArchInterruptFrame, rip),
+            rflags = const offset_of!(ArchInterruptFrame, iret.rflags),
+            rsp = const offset_of!(ArchInterruptFrame, iret.rsp),
+            rip = const offset_of!(ArchInterruptFrame, iret.rip),
         );
     }
 }

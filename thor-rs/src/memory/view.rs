@@ -186,3 +186,47 @@ impl MemoryView for ImmediateMemory {
         }
     }
 }
+
+pub struct AllocatedMemory {
+    base: MemoryViewBase,
+    page_count: usize,
+}
+
+impl AllocatedMemory {
+    pub fn new(length: usize) -> Self {
+        Self {
+            base: MemoryViewBase::new(),
+            page_count: (length + PAGE_SIZE - 1) / PAGE_SIZE,
+        }
+    }
+}
+
+#[async_trait]
+impl MemoryView for AllocatedMemory {
+    fn base(&self) -> &MemoryViewBase {
+        &self.base
+    }
+
+    async fn fault_in(&self, offset: usize) -> Result<()> {
+        let page_index = offset / PAGE_SIZE;
+
+        if page_index >= self.page_count {
+            return Err(Error::Fault);
+        }
+
+        let mut contents = self.base.contents_mut().await;
+
+        if !contents.contains_key(&page_index) {
+            let physical_page = memory::page::allocate(PAGE_SIZE).ok_or(Error::NoMemory)?;
+            let accessor = PageAccessor::new(physical_page);
+
+            unsafe {
+                accessor.as_mut::<u8>().write_bytes(0, PAGE_SIZE);
+            }
+
+            contents.insert(page_index, (physical_page, CachingMode::Null));
+        }
+
+        Ok(())
+    }
+}

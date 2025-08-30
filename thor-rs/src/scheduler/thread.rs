@@ -11,17 +11,19 @@ use crate::{
         BlockToken, Blockable, Executor, LOCAL_SCHEDULER, ScheduleEntity, ScheduleEntityType,
         THREAD_ID_ALLOCATOR,
     },
+    universe::Universe,
 };
 
 struct ThreadInner {
     context: ArchUserContext,
     executor: ArchExecutor,
-    space: Arc<ClientPageSpace>,
 }
 
 pub struct Thread {
     tid: AtomicU64,
     block_token: AtomicU64,
+    space: Arc<ClientPageSpace>,
+    universe: Arc<Universe>,
     inner: Mutex<ThreadInner>,
 }
 
@@ -30,14 +32,23 @@ impl Thread {
         let tid = THREAD_ID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
 
         Arc::new(Self {
+            space,
             tid: AtomicU64::new(tid),
             block_token: AtomicU64::new(0),
+            universe: Universe::new(),
             inner: Mutex::new(ThreadInner {
                 context: ArchUserContext::new(CPU_DATA.get()),
                 executor,
-                space,
             }),
         })
+    }
+
+    pub fn space(&self) -> &Arc<ClientPageSpace> {
+        &self.space
+    }
+
+    pub fn universe(&self) -> &Arc<Universe> {
+        &self.universe
     }
 }
 
@@ -54,7 +65,8 @@ impl ScheduleEntity for Thread {
         let inner = self.inner.lock();
 
         inner.context.activate();
-        inner.space.space().activate();
+
+        self.space.space().activate();
 
         let current = &raw const inner.executor;
 

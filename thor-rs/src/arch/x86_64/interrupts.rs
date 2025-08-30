@@ -1,4 +1,9 @@
-use crate::arch::{gdt::Gdt, idt::Idt};
+use core::mem::offset_of;
+
+use crate::{
+    arch::{gdt::Gdt, idt::Idt},
+    memory::PageAccess,
+};
 
 pub fn setup_idt(idt: &mut Idt) {
     seq_macro::seq! {
@@ -6,6 +11,21 @@ pub fn setup_idt(idt: &mut Idt) {
             idt.set_handler(N, kernel_interrupt_stub_~N, Gdt::KERNEL_CODE64_SELECTOR, 0, 0x8E);
         }
     }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct IretFrame {
+    // Pushed onto the stack by the interrupt handler stubs.
+    pub int: u64,
+    // Pushed onto the stack by the CPU if the interrupt has an error code.
+    pub error: u64,
+    // The rest is pushed onto the stack by the CPU during an interrupt.
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u64,
 }
 
 #[repr(C)]
@@ -26,16 +46,7 @@ pub struct ArchInterruptFrame {
     pub rcx: u64,
     pub rbx: u64,
     pub rax: u64,
-    // Pushed onto the stack by the interrupt handler stubs.
-    pub interrupt_number: u64,
-    // Pushed onto the stack by the CPU if the interrupt has an error code.
-    pub error: u64,
-    // The rest is pushed onto the stack by the CPU during an interrupt.
-    pub rip: u64,
-    pub cs: u64,
-    pub rflags: u64,
-    pub rsp: u64,
-    pub ss: u64,
+    pub iret: IretFrame,
 }
 
 const _: () = {
@@ -69,6 +80,12 @@ seq_macro::seq! {
 #[unsafe(naked)]
 extern "C" fn kernel_interrupt_stub_common() {
     core::arch::naked_asm!(
+        // If we are not coming from kernel mode, swap the GS base.
+        "cmp qword ptr [rsp + {cs}], {kernel_cs}",
+        "je 2f",
+        "swapgs",
+        "2:",
+        // Save general registers.
         "push rax",
         "push rbx",
         "push rcx",
@@ -93,7 +110,10 @@ extern "C" fn kernel_interrupt_stub_common() {
         "jmp {kernel_interrupt_stub_return}",
 
         kernel_interrupt_handler = sym kernel_interrupt_handler,
-        kernel_interrupt_stub_return = sym kernel_interrupt_stub_return
+        kernel_interrupt_stub_return = sym kernel_interrupt_stub_return,
+
+        cs = const offset_of!(IretFrame, cs),
+        kernel_cs = const Gdt::KERNEL_CODE64_SELECTOR as u16,
     );
 }
 
@@ -115,14 +135,42 @@ extern "C" fn kernel_interrupt_stub_return() {
         "pop rcx",
         "pop rbx",
         "pop rax",
+        // If we are not returning to kernel mode, swap the GS base.
+        "cmp qword ptr [rsp + {cs}], {kernel_cs}",
+        "je 2f",
+        "swapgs",
+        "2:",
         // Skip `error` and `interrupt_number` fields.
         "add rsp, 0x10",
         "iretq",
+
+        cs = const offset_of!(IretFrame, cs),
+        kernel_cs = const Gdt::KERNEL_CODE64_SELECTOR as u16,
     );
 }
 
 extern "C" fn kernel_interrupt_handler(frame: &mut ArchInterruptFrame) {
-    crate::println!("Exception: {}", frame.interrupt_number);
+    if frame.iret.int == 14 && frame.iret.cs & 0x3 == 3 {
+        let mut cr2: u64;
+
+        unsafe {
+            core::arch::asm!("mov {}, cr2", out(reg) cr2);
+        }
+
+        let fault_access = if frame.iret.error & (1 << 1) != 0 {
+            PageAccess::WRITE
+        } else if frame.iret.error & (1 << 4) != 0 {
+            PageAccess::EXECUTE
+        } else {
+            PageAccess::READ
+        };
+
+        if crate::handle_page_fault(cr2, fault_access) {
+            return;
+        }
+    }
+
+    crate::println!("Exception: {}", frame.iret.int);
     crate::println!("Register state:");
     crate::println!(
         "  RAX: {:#018x}  RBX: {:#018x}  RCX: {:#018x}",
@@ -149,10 +197,10 @@ extern "C" fn kernel_interrupt_handler(frame: &mut ArchInterruptFrame) {
         frame.r13
     );
     crate::println!("  R14: {:#018x}  R15: {:#018x}", frame.r14, frame.r15);
-    crate::println!("  Error code: {:#x}", frame.error);
-    crate::println!("  RIP: {:#x}", frame.rip);
+    crate::println!("  Error code: {:#x}", frame.iret.error);
+    crate::println!("  RIP: {:#x}", frame.iret.rip);
 
-    if frame.interrupt_number == 14 {
+    if frame.iret.int == 14 {
         let mut cr2: u64;
 
         unsafe {

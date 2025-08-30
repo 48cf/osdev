@@ -13,8 +13,8 @@ pub struct Gdt {
     null: GdtEntry,
     kernel_code64: GdtEntry,
     kernel_data64: GdtEntry,
-    user_code64: GdtEntry,
     user_data64: GdtEntry,
+    user_code64: GdtEntry,
     tss: GdtLongEntry,
 }
 
@@ -22,8 +22,8 @@ impl Gdt {
     pub const KERNEL_CODE64_SELECTOR: u16 = offset_of!(Self, kernel_code64) as u16;
     pub const KERNEL_DATA64_SELECTOR: u16 = offset_of!(Self, kernel_data64) as u16;
 
-    pub const USER_CODE64_SELECTOR: u16 = offset_of!(Self, user_code64) as u16 | 0b11;
     pub const USER_DATA64_SELECTOR: u16 = offset_of!(Self, user_data64) as u16 | 0b11;
+    pub const USER_CODE64_SELECTOR: u16 = offset_of!(Self, user_code64) as u16 | 0b11;
 
     pub const TSS_SELECTOR: u16 = offset_of!(Self, tss) as u16;
 
@@ -32,8 +32,8 @@ impl Gdt {
             null: GdtEntry::null(),
             kernel_code64: GdtEntry::KERNEL_CODE64,
             kernel_data64: GdtEntry::KERNEL_DATA64,
-            user_code64: GdtEntry::USER_CODE64,
             user_data64: GdtEntry::USER_DATA64,
+            user_code64: GdtEntry::USER_CODE64,
             tss: GdtLongEntry::null(),
         }
     }

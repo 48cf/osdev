@@ -107,6 +107,7 @@ pub fn init_for_boot_processor() {
 
     arch::cpu::setup_cpu_context(cpu_data.arch_data());
     arch::cpu::init_early();
+    arch::cpu::init_cpu_features();
 
     init_for_cpu(cpu_data);
 }

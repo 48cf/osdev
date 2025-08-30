@@ -2,6 +2,7 @@
 #![feature(associated_type_defaults)]
 #![feature(generic_const_exprs)]
 #![feature(never_type)]
+#![feature(str_from_raw_parts)]
 #![no_main]
 #![no_std]
 
@@ -12,6 +13,7 @@ mod boot;
 mod memory;
 mod per_cpu;
 mod scheduler;
+mod universe;
 
 use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
 
@@ -24,9 +26,10 @@ use crate::{
         CachingMode, MEMORY_LAYOUT_NOTE, PageAccess,
         client::{ClientPageSpace, MapFlags},
         kernel::KERNEL_PAGE_SPACE,
-        view::{ImmediateMemory, MemorySlice, MemoryView},
+        view::{AllocatedMemory, ImmediateMemory, MemorySlice, MemoryView},
     },
     scheduler::{Fiber, LOCAL_SCHEDULER, Thread},
+    universe::{Descriptor, Handle},
 };
 
 #[macro_export]
@@ -54,6 +57,91 @@ extern "C" fn kernel_main() -> ! {
     scheduler.schedule(Fiber::run(init_fiber));
     scheduler.force_reschedule();
     scheduler.commit_reschedule();
+}
+
+pub fn handle_page_fault(faulting_address: u64, fault_access: PageAccess) -> bool {
+    let thread = LOCAL_SCHEDULER
+        .get()
+        .current()
+        .and_then(|e| e.as_thread())
+        .expect("No current thread");
+
+    scheduler::async_block(
+        &thread,
+        thread
+            .space()
+            .handle_page_fault(faulting_address, fault_access),
+    )
+    .is_ok()
+}
+
+pub fn handle_syscall(
+    number: usize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    _arg5: usize,
+    _arg6: usize,
+    _arg7: usize,
+    _arg8: usize,
+) -> Result<(usize, usize)> {
+    if number == hel_sys::kHelCallLog as usize {
+        let slice = unsafe { core::str::from_raw_parts(arg1 as *const u8, arg2) };
+
+        print!("{}", slice);
+
+        Ok((0, 0))
+    } else if number == hel_sys::kHelCallAllocateMemory as usize {
+        if arg0 == 0 || arg0 & (PAGE_SIZE - 1) != 0 {
+            return Err(Error::IllegalArgs);
+        }
+
+        let thread = LOCAL_SCHEDULER
+            .get()
+            .current()
+            .and_then(|e| e.as_thread())
+            .expect("No current thread");
+
+        let memory = Arc::new(AllocatedMemory::new(arg0));
+        let handle = thread
+            .universe()
+            .attach_descriptor(Descriptor::MemoryView(memory));
+
+        Ok((handle.id(), 0))
+    } else if number == hel_sys::kHelCallMapMemory as usize {
+        let thread = LOCAL_SCHEDULER
+            .get()
+            .current()
+            .and_then(|e| e.as_thread())
+            .expect("No current thread");
+
+        let descriptor = thread
+            .universe()
+            .get(Handle::from_id(arg0))
+            .ok_or(Error::BadDescriptor)?;
+
+        match descriptor {
+            Descriptor::MemoryView(view) => {
+                let address = scheduler::async_block(
+                    &thread,
+                    thread.space().map(
+                        MemorySlice::new(view, arg3, arg4, CachingMode::Null),
+                        NonZeroU64::new(arg2 as u64),
+                        0,
+                        arg4,
+                        MapFlags::PREFER_TOP,
+                        PageAccess::READ_WRITE,
+                    ),
+                )?;
+
+                Ok((address as usize, 0))
+            }
+        }
+    } else {
+        Err(Error::IllegalSyscall)
+    }
 }
 
 fn init_fiber() {
@@ -198,25 +286,25 @@ unsafe fn outb(port: u16, value: u8) {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    IllegalArgs = 1,
-    IllegalObject,
+    IllegalSyscall,
+    IllegalArgs,
     IllegalState,
+    UnsupportedOperation,
     OutOfBounds,
+    QueueTooSmall,
     Cancelled,
-    FutexRace,
-    BufferTooSmall,
-    ThreadExited,
+    NoDescriptor,
+    BadDescriptor,
+    ThreadTerminated,
     TransmissionMismatch,
     LaneShutdown,
     EndOfLane,
     Dismissed,
+    BufferTooSmall,
     Fault,
     RemoteFault,
-    NoMemory,
     NoHardwareSupport,
-    HardwareBroken,
-    ProtocolViolation,
-    SpuriousOperation,
+    NoMemory,
     AlreadyExists,
 }
 

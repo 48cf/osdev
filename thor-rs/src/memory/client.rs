@@ -215,6 +215,28 @@ impl ClientPageSpace {
         &self.space
     }
 
+    pub async fn handle_page_fault(&self, address: u64, fault_access: PageAccess) -> Result<()> {
+        if let Some((&start, mapping)) = self.inner.lock().mappings.range(..=address).next_back() {
+            if address >= start + mapping.length as u64 || !mapping.access.contains(fault_access) {
+                return Err(Error::Fault);
+            }
+
+            let slice = mapping.slice.clone();
+            let offset = slice.offset() + (address - start) as usize;
+
+            self.fault_page(
+                slice.view(),
+                address & !(PAGE_SIZE as u64 - 1),
+                slice.offset() + offset,
+                mapping.access,
+                slice.caching_mode(),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn map(
         &self,
         slice: Arc<MemorySlice>,
@@ -282,12 +304,29 @@ impl VirtualSpace for ClientPageSpace {
 
     async fn fault_page(
         &self,
-        _memory_view: &Arc<dyn MemoryView>,
-        _virtual_address: u64,
-        _offset: usize,
-        _access: super::PageAccess,
-        _caching: super::CachingMode,
-    ) {
-        todo!()
+        memory_view: &Arc<dyn MemoryView>,
+        virtual_address: u64,
+        offset: usize,
+        access: super::PageAccess,
+        caching: super::CachingMode,
+    ) -> Result<()> {
+        memory_view.fault_in(offset).await?;
+
+        let &(physical_address, caching_mode) = memory_view
+            .base()
+            .contents()
+            .await
+            .get(&(offset / PAGE_SIZE))
+            .ok_or(Error::Fault)?;
+
+        let mut cursor = self.cursor(virtual_address);
+
+        cursor.map_page(
+            physical_address,
+            access,
+            caching_mode.override_with(caching),
+        );
+
+        Ok(())
     }
 }

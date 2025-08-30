@@ -10,8 +10,14 @@ async-lock = { version = "3.4.1", default-features = false }
 async-trait = "0.1.89"
 bitflags = "2.9.0"
 cpio_reader = "0.1.2"
-goblin = { version = "0.10.1", default-features = false, features = ["alloc", "elf32", "elf64", "endian_fd"] }
+goblin = { version = "0.10.1", default-features = false, features = [
+    "alloc",
+    "elf32",
+    "elf64",
+    "endian_fd",
+] }
 hashbrown = "0.16.0"
+hel-sys = { path = "../hel-sys" }
 intrusive-collections = "0.9.7"
 rlsf = "0.2.1"
 seq-macro = "0.3.6"
