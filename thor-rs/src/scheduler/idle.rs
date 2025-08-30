@@ -21,9 +21,7 @@ impl ScheduleEntity for IdleTask {
             crate::println!("System is idle");
 
             loop {
-                unsafe {
-                    core::arch::asm!("hlt");
-                }
+                arch::halt();
             }
         });
     }

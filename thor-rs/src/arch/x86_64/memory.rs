@@ -5,6 +5,12 @@ use crate::memory::{
 pub const PAGE_SIZE: usize = 0x1000;
 pub const PAGE_SHIFT: usize = 12;
 
+pub fn activate_page_table(root_table: u64) {
+    unsafe {
+        core::arch::asm!("mov cr3, {}", in(reg) root_table);
+    }
+}
+
 pub struct ArchCursorPolicy<const KERNEL: bool>;
 
 impl<const KERNEL: bool> ArchCursorPolicy<KERNEL> {

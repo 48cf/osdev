@@ -4,7 +4,7 @@ use spin::Mutex;
 
 use crate::{
     Result,
-    arch::memory::PAGE_SIZE,
+    arch::{self, memory::PAGE_SIZE},
     memory::{
         self, CachingMode, PageAccess,
         accessor::PageAccessor,
@@ -34,6 +34,7 @@ pub trait VirtualSpace {
         access: PageAccess,
         caching: CachingMode,
     );
+
     async fn fault_page(
         &self,
         memory_view: &Arc<dyn MemoryView>,
@@ -84,9 +85,7 @@ impl PageSpace {
     }
 
     pub fn activate(&self) {
-        unsafe {
-            core::arch::asm!("mov cr3, {}", in(reg) self.root_table());
-        }
+        arch::memory::activate_page_table(self.root_table());
     }
 }
 

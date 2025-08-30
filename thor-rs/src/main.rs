@@ -258,9 +258,7 @@ fn panic(info: &PanicInfo) -> ! {
     println!("Oops: {}", info);
 
     loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
+        arch::halt();
     }
 }
 

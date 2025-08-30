@@ -12,6 +12,24 @@ pub enum Msr {
     Ia32KernelGsBase = 0xc0000102,
 }
 
+pub fn halt() {
+    unsafe {
+        core::arch::asm!("hlt");
+    }
+}
+
+pub fn enable_interrupts() {
+    unsafe {
+        core::arch::asm!("sti");
+    }
+}
+
+pub fn disable_interrupts() {
+    unsafe {
+        core::arch::asm!("cli");
+    }
+}
+
 pub fn rdmsr(msr: Msr) -> u64 {
     let mut low: u32;
     let mut high: u32;
