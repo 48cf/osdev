@@ -13,11 +13,10 @@ mod boot;
 mod memory;
 mod per_cpu;
 mod scheduler;
+mod syscalls;
 mod universe;
 
 use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
-
-use alloc::sync::Arc;
 
 use crate::{
     arch::{executor::ArchExecutor, memory::PAGE_SIZE},
@@ -29,7 +28,6 @@ use crate::{
         view::{AllocatedMemory, ImmediateMemory, MemorySlice, MemoryView},
     },
     scheduler::{Fiber, LOCAL_SCHEDULER, Thread},
-    universe::{Descriptor, Handle},
 };
 
 #[macro_export]
@@ -82,65 +80,20 @@ pub fn handle_syscall(
     arg2: usize,
     arg3: usize,
     arg4: usize,
-    _arg5: usize,
+    arg5: usize,
     _arg6: usize,
     _arg7: usize,
     _arg8: usize,
-) -> Result<(usize, usize)> {
-    if number == hel_sys::kHelCallLog as usize {
-        let slice = unsafe { core::str::from_raw_parts(arg1 as *const u8, arg2) };
+) -> KernelResult<(usize, usize)> {
+    match number as u32 {
+        hel_sys::kHelCallLog => syscalls::hel_log(arg0, arg1, arg2),
+        hel_sys::kHelCallAllocateMemory => syscalls::hel_allocate_memory(arg0, arg1, arg2),
+        hel_sys::kHelCallMapMemory => syscalls::hel_map_memory(arg0, arg1, arg2, arg3, arg4, arg5),
+        _ => {
+            println!("thor: Unknown syscall number: {}", number);
 
-        print!("{}", slice);
-
-        Ok((0, 0))
-    } else if number == hel_sys::kHelCallAllocateMemory as usize {
-        if arg0 == 0 || arg0 & (PAGE_SIZE - 1) != 0 {
-            return Err(Error::IllegalArgs);
+            Err(KernelError::IllegalSyscall)
         }
-
-        let thread = LOCAL_SCHEDULER
-            .get()
-            .current()
-            .and_then(|e| e.as_thread())
-            .expect("No current thread");
-
-        let memory = Arc::new(AllocatedMemory::new(arg0));
-        let handle = thread
-            .universe()
-            .attach_descriptor(Descriptor::MemoryView(memory));
-
-        Ok((handle.id(), 0))
-    } else if number == hel_sys::kHelCallMapMemory as usize {
-        let thread = LOCAL_SCHEDULER
-            .get()
-            .current()
-            .and_then(|e| e.as_thread())
-            .expect("No current thread");
-
-        let descriptor = thread
-            .universe()
-            .get(Handle::from_id(arg0))
-            .ok_or(Error::BadDescriptor)?;
-
-        match descriptor {
-            Descriptor::MemoryView(view) => {
-                let address = scheduler::async_block(
-                    &thread,
-                    thread.space().map(
-                        MemorySlice::new(view, arg3, arg4, CachingMode::Null),
-                        NonZeroU64::new(arg2 as u64),
-                        0,
-                        arg4,
-                        MapFlags::PREFER_TOP,
-                        PageAccess::READ_WRITE,
-                    ),
-                )?;
-
-                Ok((address as usize, 0))
-            }
-        }
-    } else {
-        Err(Error::IllegalSyscall)
     }
 }
 
@@ -186,15 +139,15 @@ fn init_fiber() {
     let space = ClientPageSpace::new();
 
     let (ip, sp, initrd_address) = scheduler::async_block(&this_fiber, async {
-        let initrd_len = (initrd.len() + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
-        let initrd_memory = Arc::new(ImmediateMemory::new(initrd_len));
+        let initrd_len = initrd.len().next_multiple_of(PAGE_SIZE);
+        let initrd_memory = ImmediateMemory::new(initrd_len);
 
-        initrd_memory.copy_to(0, initrd).await.unwrap();
+        initrd_memory.copy_to(0, initrd).await?;
 
-        let elf_memory = Arc::new(ImmediateMemory::new(freya_bytes.len()));
-        let stack_memory = Arc::new(ImmediateMemory::new(0x10000));
+        let elf_memory = ImmediateMemory::new(freya_bytes.len());
+        let stack_memory = AllocatedMemory::new(0x10000);
 
-        elf_memory.copy_to(0, freya_bytes).await.unwrap();
+        elf_memory.copy_to(0, freya_bytes).await?;
 
         let freya_elf = goblin::elf::Elf::parse(freya_bytes).expect("Failed to parse freya ELF");
 
@@ -233,8 +186,7 @@ fn init_fiber() {
                     MapFlags::FIXED,
                     access,
                 )
-                .await
-                .unwrap();
+                .await?;
         }
 
         let sp = space
@@ -246,8 +198,7 @@ fn init_fiber() {
                 MapFlags::PREFER_TOP,
                 PageAccess::READ | PageAccess::WRITE,
             )
-            .await
-            .unwrap();
+            .await?;
 
         let initrd_address = space
             .map(
@@ -258,11 +209,11 @@ fn init_fiber() {
                 MapFlags::PREFER_TOP,
                 PageAccess::READ,
             )
-            .await
-            .unwrap();
+            .await?;
 
-        (freya_elf.entry, sp + 0x10000, initrd_address)
-    });
+        Ok((freya_elf.entry, sp + 0x10000, initrd_address))
+    })
+    .expect("Failed to setup freya address space");
 
     scheduler.schedule(Thread::new(
         ArchExecutor::new_user_context(
@@ -305,7 +256,7 @@ unsafe fn outb(port: u16, value: u8) {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error {
+pub enum KernelError {
     IllegalSyscall,
     IllegalArgs,
     IllegalState,
@@ -328,4 +279,4 @@ pub enum Error {
     AlreadyExists,
 }
 
-pub type Result<T> = core::result::Result<T, Error>;
+pub type KernelResult<T> = core::result::Result<T, KernelError>;

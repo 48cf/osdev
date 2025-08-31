@@ -7,7 +7,7 @@ use core::{
 use spin::Lazy;
 
 use crate::{
-    Error,
+    KernelError,
     arch::{asm, gdt::Gdt, idt::Idt},
     memory::stack::KernelStack,
     per_cpu::CpuData,
@@ -140,26 +140,26 @@ extern "C" fn syscall_entry(frame: *mut SyscallRegisters) {
         }
         Err(err) => {
             frame.rdi = match err {
-                Error::IllegalSyscall => hel_sys::kHelErrIllegalSyscall,
-                Error::IllegalArgs => hel_sys::kHelErrIllegalArgs,
-                Error::IllegalState => hel_sys::kHelErrIllegalState,
-                Error::UnsupportedOperation => hel_sys::kHelErrUnsupportedOperation,
-                Error::OutOfBounds => hel_sys::kHelErrOutOfBounds,
-                Error::QueueTooSmall => hel_sys::kHelErrQueueTooSmall,
-                Error::Cancelled => hel_sys::kHelErrCancelled,
-                Error::NoDescriptor => hel_sys::kHelErrNoDescriptor,
-                Error::BadDescriptor => hel_sys::kHelErrBadDescriptor,
-                Error::ThreadTerminated => hel_sys::kHelErrThreadTerminated,
-                Error::TransmissionMismatch => hel_sys::kHelErrTransmissionMismatch,
-                Error::LaneShutdown => hel_sys::kHelErrLaneShutdown,
-                Error::EndOfLane => hel_sys::kHelErrEndOfLane,
-                Error::Dismissed => hel_sys::kHelErrDismissed,
-                Error::BufferTooSmall => hel_sys::kHelErrBufferTooSmall,
-                Error::Fault => hel_sys::kHelErrFault,
-                Error::RemoteFault => hel_sys::kHelErrRemoteFault,
-                Error::NoHardwareSupport => hel_sys::kHelErrNoHardwareSupport,
-                Error::NoMemory => hel_sys::kHelErrNoMemory,
-                Error::AlreadyExists => hel_sys::kHelErrAlreadyExists,
+                KernelError::IllegalSyscall => hel_sys::kHelErrIllegalSyscall,
+                KernelError::IllegalArgs => hel_sys::kHelErrIllegalArgs,
+                KernelError::IllegalState => hel_sys::kHelErrIllegalState,
+                KernelError::UnsupportedOperation => hel_sys::kHelErrUnsupportedOperation,
+                KernelError::OutOfBounds => hel_sys::kHelErrOutOfBounds,
+                KernelError::QueueTooSmall => hel_sys::kHelErrQueueTooSmall,
+                KernelError::Cancelled => hel_sys::kHelErrCancelled,
+                KernelError::NoDescriptor => hel_sys::kHelErrNoDescriptor,
+                KernelError::BadDescriptor => hel_sys::kHelErrBadDescriptor,
+                KernelError::ThreadTerminated => hel_sys::kHelErrThreadTerminated,
+                KernelError::TransmissionMismatch => hel_sys::kHelErrTransmissionMismatch,
+                KernelError::LaneShutdown => hel_sys::kHelErrLaneShutdown,
+                KernelError::EndOfLane => hel_sys::kHelErrEndOfLane,
+                KernelError::Dismissed => hel_sys::kHelErrDismissed,
+                KernelError::BufferTooSmall => hel_sys::kHelErrBufferTooSmall,
+                KernelError::Fault => hel_sys::kHelErrFault,
+                KernelError::RemoteFault => hel_sys::kHelErrRemoteFault,
+                KernelError::NoHardwareSupport => hel_sys::kHelErrNoHardwareSupport,
+                KernelError::NoMemory => hel_sys::kHelErrNoMemory,
+                KernelError::AlreadyExists => hel_sys::kHelErrAlreadyExists,
             } as usize;
         }
     }

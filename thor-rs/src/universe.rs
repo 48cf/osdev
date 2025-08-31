@@ -9,7 +9,18 @@ use crate::memory::view::MemoryView;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Handle(usize);
 
+impl Default for Handle {
+    fn default() -> Self {
+        Self::NULL
+    }
+}
+
 impl Handle {
+    pub const NULL: Self = Self(0 as isize as usize);
+    pub const THIS_UNIVERSE: Self = Self(-1 as isize as usize);
+    pub const THIS_THREAD: Self = Self(-2 as isize as usize);
+    pub const ZERO_MEMORY: Self = Self(-3 as isize as usize);
+
     pub fn from_id(id: usize) -> Self {
         Self(id)
     }

@@ -1,9 +1,11 @@
-use alloc::{boxed::Box, sync::Arc};
+use core::num::NonZeroU64;
+
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use async_trait::async_trait;
 use hashbrown::HashMap;
 
 use crate::{
-    Error, Result,
+    KernelError, KernelResult,
     arch::memory::PAGE_SIZE,
     memory::{self, CachingMode, PageAccess, accessor::PageAccessor},
 };
@@ -52,9 +54,9 @@ impl MemorySlice {
 pub trait MemoryView: Sync + Send {
     fn base(&self) -> &MemoryViewBase;
 
-    async fn fault_in(&self, offset: usize, access: PageAccess) -> Result<()>;
+    async fn fault_in(&self, offset: usize, access: PageAccess) -> KernelResult<()>;
 
-    async fn copy_to(&self, offset: usize, buffer: &[u8]) -> Result<()> {
+    async fn copy_to(&self, offset: usize, buffer: &[u8]) -> KernelResult<()> {
         let mut progress = 0;
 
         while progress < buffer.len() {
@@ -68,7 +70,7 @@ pub trait MemoryView: Sync + Send {
                 .await
                 .get(&(offset / PAGE_SIZE))
                 .copied()
-                .ok_or(Error::Fault)?;
+                .ok_or(KernelError::Fault)?;
 
             assert!(kind.is_compatible(PageAccess::WRITE));
 
@@ -89,7 +91,7 @@ pub trait MemoryView: Sync + Send {
         Ok(())
     }
 
-    async fn copy_from(&self, offset: usize, buffer: &mut [u8]) -> Result<()> {
+    async fn copy_from(&self, offset: usize, buffer: &mut [u8]) -> KernelResult<()> {
         let mut progress = 0;
 
         while progress < buffer.len() {
@@ -103,7 +105,7 @@ pub trait MemoryView: Sync + Send {
                 .await
                 .get(&(offset / PAGE_SIZE))
                 .copied()
-                .ok_or(Error::Fault)?;
+                .ok_or(KernelError::Fault)?;
 
             let accessor = PageAccessor::new(physical_address);
             let page_offset = offset & (PAGE_SIZE - 1);
@@ -171,7 +173,7 @@ pub struct ImmediateMemory {
 }
 
 impl ImmediateMemory {
-    pub fn new(length: usize) -> Self {
+    pub fn new(length: usize) -> Arc<Self> {
         let page_count = (length + PAGE_SIZE - 1) / PAGE_SIZE;
 
         let mut base = MemoryViewBase::new();
@@ -190,7 +192,7 @@ impl ImmediateMemory {
             );
         }
 
-        Self { base, page_count }
+        Arc::new(Self { base, page_count })
     }
 }
 
@@ -200,10 +202,10 @@ impl MemoryView for ImmediateMemory {
         &self.base
     }
 
-    async fn fault_in(&self, offset: usize, _access: PageAccess) -> Result<()> {
+    async fn fault_in(&self, offset: usize, _access: PageAccess) -> KernelResult<()> {
         // Fault in is a no-op for immediate memory.
         if offset / PAGE_SIZE >= self.page_count {
-            Err(Error::Fault)
+            Err(KernelError::Fault)
         } else {
             Ok(())
         }
@@ -212,15 +214,28 @@ impl MemoryView for ImmediateMemory {
 
 pub struct AllocatedMemory {
     base: MemoryViewBase,
-    page_count: usize,
+    chunk_count: usize,
+    chunk_size: usize,
 }
 
 impl AllocatedMemory {
-    pub fn new(length: usize) -> Self {
-        Self {
+    fn new_with_params(desired_length: usize, desired_chunk_size: usize) -> Arc<Self> {
+        let chunk_size = 1 << (64 - (desired_chunk_size - 1).leading_zeros());
+        let length = desired_length.next_multiple_of(chunk_size);
+
+        Arc::new(Self {
             base: MemoryViewBase::new(),
-            page_count: (length + PAGE_SIZE - 1) / PAGE_SIZE,
-        }
+            chunk_count: length / chunk_size,
+            chunk_size,
+        })
+    }
+
+    pub fn new(length: usize) -> Arc<Self> {
+        Self::new_with_params(length, PAGE_SIZE)
+    }
+
+    pub fn new_contiguous(length: usize) -> Arc<Self> {
+        Self::new_with_params(length, length)
     }
 }
 
@@ -230,27 +245,39 @@ impl MemoryView for AllocatedMemory {
         &self.base
     }
 
-    async fn fault_in(&self, offset: usize, _access: PageAccess) -> Result<()> {
-        let page_index = offset / PAGE_SIZE;
+    async fn fault_in(&self, offset: usize, _access: PageAccess) -> KernelResult<()> {
+        let chunk_index = offset / self.chunk_size;
+        let chunk_page_index = (chunk_index * self.chunk_size) / PAGE_SIZE;
 
-        if page_index >= self.page_count {
-            return Err(Error::Fault);
+        if chunk_index >= self.chunk_count {
+            return Err(KernelError::Fault);
         }
 
         let mut contents = self.base.contents_mut().await;
 
-        if !contents.contains_key(&page_index) {
-            let physical_page = memory::page::allocate(PAGE_SIZE).ok_or(Error::NoMemory)?;
+        if !contents.contains_key(&chunk_page_index) {
+            let physical_page =
+                memory::page::allocate(self.chunk_size).ok_or(KernelError::NoMemory)?;
+
             let accessor = PageAccessor::new(physical_page);
 
             unsafe {
-                accessor.as_mut::<u8>().write_bytes(0, PAGE_SIZE);
+                accessor.as_mut::<u8>().write_bytes(0, self.chunk_size);
             }
 
-            contents.insert(
-                page_index,
-                (physical_page, CachingMode::Null, MemoryViewPageKind::Owned),
-            );
+            // Populate entries for all pages in a chunk.
+            for i in 0..(self.chunk_size / PAGE_SIZE) {
+                assert!(!contents.contains_key(&(chunk_page_index + i)));
+
+                contents.insert(
+                    chunk_page_index + i,
+                    (
+                        physical_page + (i * PAGE_SIZE) as u64,
+                        CachingMode::Null,
+                        MemoryViewPageKind::Owned,
+                    ),
+                );
+            }
         }
 
         Ok(())

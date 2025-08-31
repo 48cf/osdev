@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use async_trait::async_trait;
 
 use crate::{
-    Result,
+    KernelResult,
     memory::{
         PageAccess,
         view::{MemoryView, MemoryViewBase},
@@ -17,7 +17,7 @@ impl MemoryView for CopyOnWriteView {
         todo!()
     }
 
-    async fn fault_in(&self, _offset: usize, _access: PageAccess) -> Result<()> {
+    async fn fault_in(&self, _offset: usize, _access: PageAccess) -> KernelResult<()> {
         todo!()
     }
 }

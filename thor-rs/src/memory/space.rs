@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use spin::Mutex;
 
 use crate::{
-    Result,
+    KernelResult,
     arch::{self, memory::PAGE_SIZE},
     memory::{
         self, CachingMode, PageAccess,
@@ -42,7 +42,7 @@ pub trait VirtualSpace {
         offset: usize,
         access: PageAccess,
         caching: CachingMode,
-    ) -> Result<()>;
+    ) -> KernelResult<()>;
 }
 
 impl PageSpace {

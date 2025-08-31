@@ -4,7 +4,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use hel::Handle;
+use hel::{Handle, Mapping, MappingFlags};
 use spin::{Lazy, Mutex};
 
 #[derive(Default)]
@@ -63,17 +63,43 @@ pub fn unpack_initrd(initrd: &[u8]) {
             let mut handle = 0;
 
             let length = (entry.file().len() + 0xFFF) & !0xFFF;
-            let result =
-                unsafe { hel_sys::helAllocateMemory(length, 0, core::ptr::null(), &mut handle) };
+            let result = unsafe {
+                hel_sys::helAllocateMemory(
+                    length,
+                    hel_sys::kHelAllocOnDemand | hel_sys::kHelAllocContinuous,
+                    core::ptr::null(),
+                    &mut handle,
+                )
+            };
 
             assert_eq!(result, hel_sys::kHelErrNone as _);
 
-            let new_file = Arc::new(VfsNode::File(VfsFile {
-                memory_handle: unsafe { Handle::from_raw(handle) },
-                length: entry.file().len(),
-            }));
+            let memory_handle = unsafe { Handle::from_raw(handle) };
+            let mapping: Mapping<u8> = unsafe {
+                Mapping::new(
+                    &memory_handle,
+                    None,
+                    0,
+                    length,
+                    MappingFlags::READ | MappingFlags::WRITE,
+                )
+                .expect("freya: Failed to map initrd file memory")
+            };
 
-            // TODO: Write the file contents to the memory view.
+            unsafe {
+                mapping
+                    .as_ptr()
+                    .unwrap()
+                    .as_ptr()
+                    .copy_from_nonoverlapping(entry.file().as_ptr(), entry.file().len());
+            }
+
+            core::mem::forget(mapping);
+
+            let new_file = Arc::new(VfsNode::File(VfsFile {
+                length: entry.file().len(),
+                memory_handle,
+            }));
 
             directory.entries.lock().insert(name, new_file);
         } else {

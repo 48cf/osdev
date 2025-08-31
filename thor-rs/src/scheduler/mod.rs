@@ -13,7 +13,9 @@ use core::{
 use alloc::{collections::vec_deque::VecDeque, sync::Arc, task::Wake};
 use spin::Mutex;
 
-use crate::{arch::interrupts::ArchInterruptFrame, scheduler::idle::GLOBAL_IDLE_TASK};
+use crate::{
+    KernelResult, arch::interrupts::ArchInterruptFrame, scheduler::idle::GLOBAL_IDLE_TASK,
+};
 
 static THREAD_ID_ALLOCATOR: AtomicU64 = AtomicU64::new(1);
 
@@ -152,10 +154,10 @@ pub trait Blockable: ScheduleEntity + Sync + Send {
     fn unblock(self: &Arc<Self>, token: BlockToken);
 }
 
-pub fn async_block<B: Blockable + 'static, F: Future<Output = T>, T>(
+pub fn async_block<B: Blockable + 'static, F: Future<Output = KernelResult<T>>, T>(
     entity: &Arc<B>,
     future: F,
-) -> T {
+) -> KernelResult<T> {
     let mut future = core::pin::pin!(future);
 
     struct ThreadWaker<B: Blockable> {

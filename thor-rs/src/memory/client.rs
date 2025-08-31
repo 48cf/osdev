@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use spin::Mutex;
 
 use crate::{
-    Error, Result,
+    KernelError, KernelResult,
     arch::memory::{PAGE_SIZE, UserCursorPolicy},
     memory::{
         self, CachingMode, PageAccess,
@@ -146,7 +146,7 @@ impl ClientPageSpaceInner {
         length: usize,
         flags: MapFlags,
         access: PageAccess,
-    ) -> Result<u64> {
+    ) -> KernelResult<u64> {
         if let Some(address) = virtual_address {
             assert!(address.get() & (PAGE_SIZE as u64 - 1) == 0);
         }
@@ -155,16 +155,16 @@ impl ClientPageSpaceInner {
         assert!(length & (PAGE_SIZE - 1) == 0);
 
         if offset + length > slice.length() {
-            return Err(Error::OutOfBounds);
+            return Err(KernelError::OutOfBounds);
         }
 
         let address = if flags.contains(MapFlags::FIXED) {
             let Some(requested_address) = virtual_address else {
-                return Err(Error::IllegalArgs);
+                return Err(KernelError::IllegalArgs);
             };
 
             self.allocate_at(requested_address.get(), length)
-                .ok_or(Error::NoMemory)?
+                .ok_or(KernelError::NoMemory)?
         } else if flags.contains(MapFlags::FIXED_NO_REPLACE) {
             todo!()
         } else {
@@ -174,7 +174,7 @@ impl ClientPageSpaceInner {
                 allocated_address
             } else {
                 self.allocate_anywhere(length, flags)
-                    .ok_or(Error::NoMemory)?
+                    .ok_or(KernelError::NoMemory)?
             }
         };
 
@@ -215,10 +215,14 @@ impl ClientPageSpace {
         &self.space
     }
 
-    pub async fn handle_page_fault(&self, address: u64, fault_access: PageAccess) -> Result<()> {
+    pub async fn handle_page_fault(
+        &self,
+        address: u64,
+        fault_access: PageAccess,
+    ) -> KernelResult<()> {
         if let Some((&start, mapping)) = self.inner.lock().mappings.range(..=address).next_back() {
             if address >= start + mapping.length as u64 || !mapping.access.contains(fault_access) {
-                return Err(Error::Fault);
+                return Err(KernelError::Fault);
             }
 
             let slice = mapping.slice.clone();
@@ -232,9 +236,11 @@ impl ClientPageSpace {
                 slice.caching_mode(),
             )
             .await?;
-        }
 
-        Ok(())
+            Ok(())
+        } else {
+            Err(KernelError::Fault)
+        }
     }
 
     pub async fn map(
@@ -245,7 +251,7 @@ impl ClientPageSpace {
         length: usize,
         flags: MapFlags,
         access: PageAccess,
-    ) -> Result<u64> {
+    ) -> KernelResult<u64> {
         let caching_mode = if slice.caching_mode() == CachingMode::WriteCombine {
             CachingMode::WriteCombine
         } else {
@@ -309,7 +315,7 @@ impl VirtualSpace for ClientPageSpace {
         offset: usize,
         access: super::PageAccess,
         caching: super::CachingMode,
-    ) -> Result<()> {
+    ) -> KernelResult<()> {
         memory_view.fault_in(offset, access).await?;
 
         let &(physical_address, caching_mode, kind) = memory_view
@@ -317,7 +323,7 @@ impl VirtualSpace for ClientPageSpace {
             .contents()
             .await
             .get(&(offset / PAGE_SIZE))
-            .ok_or(Error::Fault)?;
+            .ok_or(KernelError::Fault)?;
 
         assert!(kind.is_compatible(access));
 
