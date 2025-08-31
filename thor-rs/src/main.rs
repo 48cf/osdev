@@ -99,6 +99,8 @@ pub fn handle_fault(image: &impl FaultRegisterImage) {
 }
 
 pub fn handle_interrupt(image: &impl IrqRegisterImage) {
+    image.dump_registers();
+
     todo!()
 }
 
