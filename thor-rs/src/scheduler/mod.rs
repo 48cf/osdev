@@ -24,8 +24,25 @@ crate::define_percpu! {
 }
 
 struct SchedulerInner {
-    current: Option<Arc<dyn ScheduleEntity>>,
+    current: Arc<dyn ScheduleEntity>,
     queue: VecDeque<Arc<dyn ScheduleEntity>>,
+}
+
+impl SchedulerInner {
+    fn set_current(&mut self, mut entity: Arc<dyn ScheduleEntity>) -> Arc<dyn ScheduleEntity> {
+        core::mem::swap(&mut self.current, &mut entity);
+
+        // Drop the old reference to the previous task.
+        //
+        // This is the equivalent [`Arc::from_raw`] to the [`Arc::into_raw`]
+        // in [`Scheduler::commit_reschedule`].
+        unsafe {
+            let ptr = Arc::into_raw(entity);
+            let _ = Arc::from_raw(ptr);
+
+            Arc::from_raw(ptr)
+        }
+    }
 }
 
 pub struct Scheduler {
@@ -36,18 +53,14 @@ impl Scheduler {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(SchedulerInner {
-                current: Some(GLOBAL_IDLE_TASK.clone()),
+                current: GLOBAL_IDLE_TASK.clone(),
                 queue: VecDeque::with_capacity(128),
             }),
         }
     }
 
-    pub fn current(&self) -> Option<Arc<dyn ScheduleEntity>> {
+    pub fn current(&self) -> Arc<dyn ScheduleEntity> {
         self.inner.lock().current.clone()
-    }
-
-    pub fn set_current(&self, entity: Arc<dyn ScheduleEntity>) {
-        self.inner.lock().current = Some(entity);
     }
 
     pub fn schedule(&self, entity: Arc<dyn ScheduleEntity>) {
@@ -64,17 +77,16 @@ impl Scheduler {
 
         // TODO: Implement logic for picking the next entity to run.
 
-        let current = inner.current.take().unwrap();
         let next = inner.queue.pop_front().unwrap_or_else(|| {
             // If the queue is empty, return the idle task.
             GLOBAL_IDLE_TASK.clone()
         });
 
+        let current = inner.set_current(next);
+
         if current.entity_type() != ScheduleEntityType::Idle {
             inner.queue.push_back(current);
         }
-
-        inner.current = Some(next);
 
         true
 
@@ -91,17 +103,18 @@ impl Scheduler {
 
     pub fn force_reschedule(&self) {
         let mut inner = self.inner.lock();
+
         let next = inner.queue.pop_front().unwrap_or_else(|| {
             // If the queue is empty, return the idle task.
             GLOBAL_IDLE_TASK.clone()
         });
 
-        inner.current = Some(next);
+        let _ = inner.set_current(next);
     }
 
     pub fn commit_reschedule(&self) -> ! {
         let inner = self.inner.lock();
-        let current = Arc::into_raw(inner.current.as_ref().unwrap().clone());
+        let current = Arc::into_raw(inner.current.clone());
 
         drop(inner);
 

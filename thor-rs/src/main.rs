@@ -61,7 +61,7 @@ pub fn handle_page_fault(faulting_address: u64, fault_access: PageAccess) -> boo
     let thread = LOCAL_SCHEDULER
         .get()
         .current()
-        .and_then(|e| e.as_thread())
+        .as_thread()
         .expect("No current thread");
 
     scheduler::async_block(
@@ -129,7 +129,7 @@ fn init_fiber() {
     };
 
     let scheduler = LOCAL_SCHEDULER.get();
-    let this_fiber = scheduler.current().and_then(|e| e.as_fiber()).unwrap();
+    let this_fiber = scheduler.current().as_fiber().expect("No current fiber");
 
     let freya_bytes = cpio_reader::iter_files(initrd)
         .find(|entry| entry.name() == "freya")

@@ -72,7 +72,7 @@ pub fn hel_allocate_memory(length: usize, flags: usize, _restrictions: usize) ->
     let thread = LOCAL_SCHEDULER
         .get()
         .current()
-        .and_then(|e| e.as_thread())
+        .as_thread()
         .expect("No current thread");
 
     let memory: Arc<dyn MemoryView> = if flags & hel_sys::kHelAllocContinuous as usize != 0 {
@@ -115,7 +115,7 @@ pub fn hel_map_memory(
     let thread = LOCAL_SCHEDULER
         .get()
         .current()
-        .and_then(|e| e.as_thread())
+        .as_thread()
         .expect("No current thread");
 
     let descriptor = thread

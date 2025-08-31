@@ -53,7 +53,7 @@ static KERNEL_VIRTUAL_TREE: Lazy<Mutex<KernelVirtualTree<'static>>> = Lazy::new(
 });
 
 pub fn allocate_virtual_memory(size: usize) -> Option<u64> {
-    let pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let pages = size.next_multiple_of(PAGE_SIZE) / PAGE_SIZE;
 
     let mut tree = KERNEL_VIRTUAL_TREE.lock();
     let mut best_hole = None;
@@ -95,20 +95,41 @@ pub fn allocate_virtual_memory(size: usize) -> Option<u64> {
 
         Some(address)
     } else {
+        crate::println!(
+            "Out of kernel virtual memory while allocating {:#x} bytes",
+            size
+        );
+
+        drop(tree);
+        dump_virtual_tree();
+
         None
     }
 }
 
 pub fn free_virtual_memory(address: u64, size: usize) {
-    crate::println!(
-        "Freeing virtual memory not implemented yet, address={:#x} size={:#x}",
-        address,
-        size
-    );
+    let size = size.next_multiple_of(PAGE_SIZE);
+    let new_hole = unsafe {
+        let page = page::allocate(PAGE_SIZE).unwrap();
+        let accessor = PageAccessor::new(page);
+        let new_hole = accessor.as_mut::<KernelVirtualHole>();
+
+        new_hole.write(KernelVirtualHole {
+            hook: RBTreeAtomicLink::new(),
+            address,
+            size,
+        });
+
+        &*new_hole
+    };
+
+    KERNEL_VIRTUAL_TREE.lock().insert(new_hole);
 }
 
 pub fn dump_virtual_tree() {
     let tree = KERNEL_VIRTUAL_TREE.lock();
+
+    crate::println!("Kernel virtual memory holes:");
 
     for hole in tree.iter() {
         crate::println!(

@@ -27,10 +27,10 @@ extern "C" fn fiber_entry<F: FnMut()>(arg0: usize, _: usize) -> ! {
 
     (func)();
 
-    crate::println!("Fix exiting fibers");
-
-    LOCAL_SCHEDULER.get().force_reschedule();
-    LOCAL_SCHEDULER.get().commit_reschedule();
+    arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
+        LOCAL_SCHEDULER.get().force_reschedule();
+        LOCAL_SCHEDULER.get().commit_reschedule();
+    });
 }
 
 impl Fiber {
