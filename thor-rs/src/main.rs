@@ -2,6 +2,7 @@
 #![feature(associated_type_defaults)]
 #![feature(generic_const_exprs)]
 #![feature(never_type)]
+#![feature(sized_hierarchy)]
 #![feature(str_from_raw_parts)]
 #![no_main]
 #![no_std]
@@ -19,7 +20,14 @@ mod universe;
 use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
 
 use crate::{
-    arch::{executor::ArchExecutor, memory::PAGE_SIZE},
+    arch::{
+        executor::ArchExecutor,
+        image::{
+            FaultErrorCode, FaultKind, FaultRegisterImage, ImageDomain, IrqRegisterImage,
+            SyscallRegisterImage,
+        },
+        memory::PAGE_SIZE,
+    },
     boot::eir::{EirInfo, EirModule},
     memory::{
         CachingMode, MEMORY_LAYOUT_NOTE, PageAccess,
@@ -57,7 +65,7 @@ extern "C" fn kernel_main() -> ! {
     scheduler.commit_reschedule();
 }
 
-pub fn handle_page_fault(faulting_address: u64, fault_access: PageAccess) -> bool {
+pub fn handle_page_fault(image: &impl FaultRegisterImage) -> bool {
     let thread = LOCAL_SCHEDULER
         .get()
         .current()
@@ -66,33 +74,77 @@ pub fn handle_page_fault(faulting_address: u64, fault_access: PageAccess) -> boo
 
     scheduler::async_block(
         &thread,
-        thread
-            .space()
-            .handle_page_fault(faulting_address, fault_access),
+        thread.space().handle_page_fault(
+            image.fault_address() as u64,
+            image.error_code().into_page_access(),
+        ),
     )
     .is_ok()
 }
 
-pub fn handle_syscall(
-    number: usize,
-    arg0: usize,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    _arg6: usize,
-    _arg7: usize,
-    _arg8: usize,
-) -> KernelResult<(usize, usize)> {
-    match number as u32 {
-        hel_sys::kHelCallLog => syscalls::hel_log(arg0, arg1, arg2),
-        hel_sys::kHelCallAllocateMemory => syscalls::hel_allocate_memory(arg0, arg1, arg2),
-        hel_sys::kHelCallMapMemory => syscalls::hel_map_memory(arg0, arg1, arg2, arg3, arg4, arg5),
+pub fn handle_fault(image: &impl FaultRegisterImage) {
+    assert!(image.fault_kind() == FaultKind::PageFault);
+
+    if image.domain() == ImageDomain::User && handle_page_fault(image) {
+        return;
+    }
+
+    image.dump_registers();
+
+    loop {
+        unsafe {
+            core::arch::asm!("hlt");
+        }
+    }
+}
+
+pub fn handle_interrupt(image: &impl IrqRegisterImage) {
+    todo!()
+}
+
+pub fn handle_syscall(image: &mut impl SyscallRegisterImage) {
+    let result = match image.syscall_number() as u32 {
+        hel_sys::kHelCallLog => syscalls::hel_log(image),
+        hel_sys::kHelCallAllocateMemory => syscalls::hel_allocate_memory(image),
+        hel_sys::kHelCallMapMemory => syscalls::hel_map_memory(image),
         _ => {
-            println!("thor: Unknown syscall number: {}", number);
+            println!("thor: Unknown syscall number: {}", image.syscall_number());
 
             Err(KernelError::IllegalSyscall)
+        }
+    };
+
+    match result {
+        Ok((a, b)) => {
+            image.set_error(hel_sys::kHelErrNone as usize);
+            image.set_out0(a);
+            image.set_out1(b);
+        }
+        Err(err) => {
+            let error = match err {
+                KernelError::IllegalSyscall => hel_sys::kHelErrIllegalSyscall,
+                KernelError::IllegalArgs => hel_sys::kHelErrIllegalArgs,
+                KernelError::IllegalState => hel_sys::kHelErrIllegalState,
+                KernelError::UnsupportedOperation => hel_sys::kHelErrUnsupportedOperation,
+                KernelError::OutOfBounds => hel_sys::kHelErrOutOfBounds,
+                KernelError::QueueTooSmall => hel_sys::kHelErrQueueTooSmall,
+                KernelError::Cancelled => hel_sys::kHelErrCancelled,
+                KernelError::NoDescriptor => hel_sys::kHelErrNoDescriptor,
+                KernelError::BadDescriptor => hel_sys::kHelErrBadDescriptor,
+                KernelError::ThreadTerminated => hel_sys::kHelErrThreadTerminated,
+                KernelError::TransmissionMismatch => hel_sys::kHelErrTransmissionMismatch,
+                KernelError::LaneShutdown => hel_sys::kHelErrLaneShutdown,
+                KernelError::EndOfLane => hel_sys::kHelErrEndOfLane,
+                KernelError::Dismissed => hel_sys::kHelErrDismissed,
+                KernelError::BufferTooSmall => hel_sys::kHelErrBufferTooSmall,
+                KernelError::Fault => hel_sys::kHelErrFault,
+                KernelError::RemoteFault => hel_sys::kHelErrRemoteFault,
+                KernelError::NoHardwareSupport => hel_sys::kHelErrNoHardwareSupport,
+                KernelError::NoMemory => hel_sys::kHelErrNoMemory,
+                KernelError::AlreadyExists => hel_sys::kHelErrAlreadyExists,
+            };
+
+            image.set_error(error as usize);
         }
     }
 }

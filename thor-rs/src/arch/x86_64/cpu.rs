@@ -7,11 +7,11 @@ use core::{
 use spin::Lazy;
 
 use crate::{
-    KernelError,
     arch::{
-        asm::{self, Msr},
+        asm::Msr,
         gdt::Gdt,
         idt::Idt,
+        image::{ImageDomain, RegisterImage, SyscallRegisterImage},
     },
     memory::stack::KernelStack,
     per_cpu::CpuData,
@@ -129,44 +129,96 @@ struct SyscallRegisters {
     rsp: usize,
 }
 
-extern "C" fn syscall_entry(frame: *mut SyscallRegisters) {
-    let frame = unsafe { &mut *frame };
-    let result = crate::handle_syscall(
-        frame.rdi, frame.rsi, frame.rdx, frame.rax, frame.r8, frame.r9, frame.r10, frame.r12,
-        frame.r13, frame.r14,
-    );
-
-    match result {
-        Ok((a, b)) => {
-            frame.rdi = hel_sys::kHelErrNone as usize;
-            frame.rsi = a;
-            frame.rdx = b;
-        }
-        Err(err) => {
-            frame.rdi = match err {
-                KernelError::IllegalSyscall => hel_sys::kHelErrIllegalSyscall,
-                KernelError::IllegalArgs => hel_sys::kHelErrIllegalArgs,
-                KernelError::IllegalState => hel_sys::kHelErrIllegalState,
-                KernelError::UnsupportedOperation => hel_sys::kHelErrUnsupportedOperation,
-                KernelError::OutOfBounds => hel_sys::kHelErrOutOfBounds,
-                KernelError::QueueTooSmall => hel_sys::kHelErrQueueTooSmall,
-                KernelError::Cancelled => hel_sys::kHelErrCancelled,
-                KernelError::NoDescriptor => hel_sys::kHelErrNoDescriptor,
-                KernelError::BadDescriptor => hel_sys::kHelErrBadDescriptor,
-                KernelError::ThreadTerminated => hel_sys::kHelErrThreadTerminated,
-                KernelError::TransmissionMismatch => hel_sys::kHelErrTransmissionMismatch,
-                KernelError::LaneShutdown => hel_sys::kHelErrLaneShutdown,
-                KernelError::EndOfLane => hel_sys::kHelErrEndOfLane,
-                KernelError::Dismissed => hel_sys::kHelErrDismissed,
-                KernelError::BufferTooSmall => hel_sys::kHelErrBufferTooSmall,
-                KernelError::Fault => hel_sys::kHelErrFault,
-                KernelError::RemoteFault => hel_sys::kHelErrRemoteFault,
-                KernelError::NoHardwareSupport => hel_sys::kHelErrNoHardwareSupport,
-                KernelError::NoMemory => hel_sys::kHelErrNoMemory,
-                KernelError::AlreadyExists => hel_sys::kHelErrAlreadyExists,
-            } as usize;
-        }
+impl RegisterImage for SyscallRegisters {
+    fn dump_registers(&self) {
+        todo!("Why would you want to do that?")
     }
+
+    fn domain(&self) -> ImageDomain {
+        ImageDomain::User
+    }
+
+    fn ip(&self) -> usize {
+        self.rip
+    }
+
+    fn sp(&self) -> usize {
+        self.rsp
+    }
+
+    fn flags(&self) -> usize {
+        self.rflags
+    }
+
+    fn set_ip(&mut self, value: usize) {
+        self.rip = value;
+    }
+
+    fn set_sp(&mut self, value: usize) {
+        self.rsp = value;
+    }
+
+    fn set_flags(&mut self, value: usize) {
+        self.rflags = value;
+    }
+}
+
+impl SyscallRegisterImage for SyscallRegisters {
+    fn syscall_number(&self) -> usize {
+        self.rdi
+    }
+
+    fn arg0(&self) -> usize {
+        self.rsi
+    }
+
+    fn arg1(&self) -> usize {
+        self.rdx
+    }
+
+    fn arg2(&self) -> usize {
+        self.rax
+    }
+
+    fn arg3(&self) -> usize {
+        self.r8
+    }
+
+    fn arg4(&self) -> usize {
+        self.r9
+    }
+
+    fn arg5(&self) -> usize {
+        self.r10
+    }
+
+    fn arg6(&self) -> usize {
+        self.r12
+    }
+
+    fn arg7(&self) -> usize {
+        self.r13
+    }
+
+    fn arg8(&self) -> usize {
+        self.r14
+    }
+
+    fn set_error(&mut self, value: usize) {
+        self.rdi = value;
+    }
+
+    fn set_out0(&mut self, value: usize) {
+        self.rsi = value;
+    }
+
+    fn set_out1(&mut self, value: usize) {
+        self.rdx = value;
+    }
+}
+
+extern "C" fn syscall_entry(frame: *mut SyscallRegisters) {
+    crate::handle_syscall(unsafe { &mut *frame });
 }
 
 #[unsafe(naked)]

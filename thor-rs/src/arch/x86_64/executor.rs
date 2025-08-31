@@ -1,5 +1,6 @@
 use core::{
     arch::naked_asm,
+    marker::PointeeSized,
     mem::{MaybeUninit, offset_of},
 };
 
@@ -137,7 +138,7 @@ impl Executor for ArchExecutor {
 }
 
 pub fn fork_executor<F: FnMut(&ArchInterruptFrame) -> !>(func: F) {
-    extern "C" fn fork_executor_entry<F: FnMut(&ArchInterruptFrame) -> !>(
+    extern "C" fn fork_executor_entry<F: FnMut(&ArchInterruptFrame) -> ! + Sized + PointeeSized>(
         frame: *const ArchInterruptFrame,
         arg: usize,
     ) -> ! {
@@ -153,7 +154,10 @@ pub fn fork_executor<F: FnMut(&ArchInterruptFrame) -> !>(func: F) {
 }
 
 pub fn run_on_stack<F: FnMut(usize) -> !>(stack: &KernelStack, func: F) -> ! {
-    extern "C" fn run_on_stack_entry<F: FnMut(usize) -> !>(previous_sp: usize, arg: usize) -> ! {
+    extern "C" fn run_on_stack_entry<F: FnMut(usize) -> ! + Sized + PointeeSized>(
+        previous_sp: usize,
+        arg: usize,
+    ) -> ! {
         let func: &mut F = unsafe { &mut *(arg as *mut F) };
 
         func(previous_sp)
@@ -283,8 +287,8 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
 extern "C" fn do_fork_executor(entry: usize, arg: usize) {
     let mut frame: ArchInterruptFrame = unsafe { MaybeUninit::zeroed().assume_init() };
 
-    frame.iret.cs = Gdt::KERNEL_CODE64_SELECTOR as u64;
-    frame.iret.ss = Gdt::KERNEL_DATA64_SELECTOR as u64;
+    frame.iret.cs = Gdt::KERNEL_CODE64_SELECTOR as usize;
+    frame.iret.ss = Gdt::KERNEL_DATA64_SELECTOR as usize;
 
     unsafe {
         core::arch::asm!(

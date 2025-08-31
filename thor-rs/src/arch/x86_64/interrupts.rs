@@ -1,7 +1,14 @@
 use core::mem::offset_of;
 
 use crate::{
-    arch::{gdt::Gdt, idt::Idt},
+    arch::{
+        gdt::Gdt,
+        idt::Idt,
+        image::{
+            FaultErrorCode, FaultKind, FaultRegisterImage, ImageDomain, IrqRegisterImage,
+            RegisterImage,
+        },
+    },
     memory::PageAccess,
 };
 
@@ -13,46 +20,148 @@ pub fn setup_idt(idt: &mut Idt) {
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct ErrorCode(pub usize);
+
+impl FaultErrorCode for ErrorCode {
+    fn into_page_access(self) -> PageAccess {
+        if self.0 & (1 << 1) != 0 {
+            PageAccess::WRITE
+        } else if self.0 & (1 << 4) != 0 {
+            PageAccess::EXECUTE
+        } else {
+            PageAccess::READ
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct IretFrame {
     // Pushed onto the stack by the interrupt handler stubs.
-    pub int: u64,
+    pub int: usize,
     // Pushed onto the stack by the CPU if the interrupt has an error code.
-    pub error: u64,
+    pub error: ErrorCode,
     // The rest is pushed onto the stack by the CPU during an interrupt.
-    pub rip: u64,
-    pub cs: u64,
-    pub rflags: u64,
-    pub rsp: u64,
-    pub ss: u64,
+    pub rip: usize,
+    pub cs: usize,
+    pub rflags: usize,
+    pub rsp: usize,
+    pub ss: usize,
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct ArchInterruptFrame {
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub rsi: u64,
-    pub rdi: u64,
-    pub rbp: u64,
-    pub rdx: u64,
-    pub rcx: u64,
-    pub rbx: u64,
-    pub rax: u64,
+    pub cr2: usize,
+    pub r15: usize,
+    pub r14: usize,
+    pub r13: usize,
+    pub r12: usize,
+    pub r11: usize,
+    pub r10: usize,
+    pub r9: usize,
+    pub r8: usize,
+    pub rsi: usize,
+    pub rdi: usize,
+    pub rbp: usize,
+    pub rdx: usize,
+    pub rcx: usize,
+    pub rbx: usize,
+    pub rax: usize,
     pub iret: IretFrame,
 }
 
-const _: () = {
-    // Make sure the interrupt frame is 16-byte aligned.
-    assert!(size_of::<ArchInterruptFrame>() % 16 == 0);
-};
+impl RegisterImage for ArchInterruptFrame {
+    fn dump_registers(&self) {
+        crate::println!("Register state:");
+        crate::println!(
+            "  RAX: {:#018x}  RBX: {:#018x}  RCX: {:#018x}",
+            self.rax,
+            self.rbx,
+            self.rcx
+        );
+        crate::println!(
+            "  RDX: {:#018x}  RDI: {:#018x}  RSI: {:#018x}",
+            self.rdx,
+            self.rdi,
+            self.rsi
+        );
+        crate::println!(
+            "  R8:  {:#018x}  R9:  {:#018x}  R10: {:#018x}",
+            self.r8,
+            self.r9,
+            self.r10
+        );
+        crate::println!(
+            "  R11: {:#018x}  R12: {:#018x}  R13: {:#018x}",
+            self.r11,
+            self.r12,
+            self.r13
+        );
+        crate::println!("  R14: {:#018x}  R15: {:#018x}", self.r14, self.r15);
+        crate::println!("  Error code: {:#x}", self.iret.error.0);
+        crate::println!("  RIP: {:#x}", self.iret.rip);
+    }
+
+    fn domain(&self) -> ImageDomain {
+        if self.iret.cs & 0b11 == 3 {
+            ImageDomain::User
+        } else {
+            ImageDomain::Kernel
+        }
+    }
+
+    fn ip(&self) -> usize {
+        self.iret.rip
+    }
+
+    fn sp(&self) -> usize {
+        self.iret.rsp
+    }
+
+    fn flags(&self) -> usize {
+        self.iret.rflags
+    }
+
+    fn set_ip(&mut self, value: usize) {
+        self.iret.rip = value;
+    }
+
+    fn set_sp(&mut self, value: usize) {
+        self.iret.rsp = value;
+    }
+
+    fn set_flags(&mut self, value: usize) {
+        self.iret.rflags = value;
+    }
+}
+
+impl IrqRegisterImage for ArchInterruptFrame {
+    fn irq_number(&self) -> usize {
+        self.iret.int
+    }
+}
+
+impl FaultRegisterImage for ArchInterruptFrame {
+    fn fault_kind(&self) -> FaultKind {
+        match self.iret.int {
+            3 => FaultKind::Breakpoint,
+            6 => FaultKind::InvalidOpcode,
+            14 => FaultKind::PageFault,
+            other => FaultKind::Other(other),
+        }
+    }
+
+    fn error_code(&self) -> impl FaultErrorCode {
+        self.iret.error
+    }
+
+    fn fault_address(&self) -> usize {
+        self.cr2
+    }
+}
 
 seq_macro::seq! {
     N in 0..256 {
@@ -101,6 +210,10 @@ extern "C" fn kernel_interrupt_stub_common() {
         "push r13",
         "push r14",
         "push r15",
+        // Save fault address.
+        "mov rax, cr2",
+        "push rax",
+        // Clear direction flag.
         "cld",
         // Zero out the base pointer since we can't trust it.
         "xor rbp, rbp",
@@ -120,6 +233,9 @@ extern "C" fn kernel_interrupt_stub_common() {
 #[unsafe(naked)]
 extern "C" fn kernel_interrupt_stub_return() {
     core::arch::naked_asm!(
+        // Skip the fault address.
+        "add rsp, 8",
+        // Pop the general registers.
         "pop r15",
         "pop r14",
         "pop r13",
@@ -149,70 +265,12 @@ extern "C" fn kernel_interrupt_stub_return() {
     );
 }
 
-extern "C" fn kernel_interrupt_handler(frame: &mut ArchInterruptFrame) {
-    if frame.iret.int == 14 && frame.iret.cs & 0x3 == 3 {
-        let mut cr2: u64;
+extern "C" fn kernel_interrupt_handler(frame: *mut ArchInterruptFrame) {
+    let frame = unsafe { &mut *frame };
 
-        unsafe {
-            core::arch::asm!("mov {}, cr2", out(reg) cr2);
-        }
-
-        let fault_access = if frame.iret.error & (1 << 1) != 0 {
-            PageAccess::WRITE
-        } else if frame.iret.error & (1 << 4) != 0 {
-            PageAccess::EXECUTE
-        } else {
-            PageAccess::READ
-        };
-
-        if crate::handle_page_fault(cr2, fault_access) {
-            return;
-        }
-    }
-
-    crate::println!("Exception: {}", frame.iret.int);
-    crate::println!("Register state:");
-    crate::println!(
-        "  RAX: {:#018x}  RBX: {:#018x}  RCX: {:#018x}",
-        frame.rax,
-        frame.rbx,
-        frame.rcx
-    );
-    crate::println!(
-        "  RDX: {:#018x}  RDI: {:#018x}  RSI: {:#018x}",
-        frame.rdx,
-        frame.rdi,
-        frame.rsi
-    );
-    crate::println!(
-        "  R8:  {:#018x}  R9:  {:#018x}  R10: {:#018x}",
-        frame.r8,
-        frame.r9,
-        frame.r10
-    );
-    crate::println!(
-        "  R11: {:#018x}  R12: {:#018x}  R13: {:#018x}",
-        frame.r11,
-        frame.r12,
-        frame.r13
-    );
-    crate::println!("  R14: {:#018x}  R15: {:#018x}", frame.r14, frame.r15);
-    crate::println!("  Error code: {:#x}", frame.iret.error);
-    crate::println!("  RIP: {:#x}", frame.iret.rip);
-
-    if frame.iret.int == 14 {
-        let mut cr2: u64;
-
-        unsafe {
-            core::arch::asm!("mov {}, cr2", out(reg) cr2);
-        }
-
-        crate::println!("  Faulting address: {:#x}", cr2);
-    }
-
-    loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
+    if frame.irq_number() < 32 {
+        crate::handle_fault(frame);
+    } else {
+        crate::handle_interrupt(frame);
     }
 }

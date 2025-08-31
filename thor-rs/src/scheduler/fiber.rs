@@ -1,4 +1,7 @@
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::{
+    marker::PointeeSized,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use alloc::{boxed::Box, sync::Arc};
 use spin::Mutex;
@@ -22,19 +25,19 @@ pub struct Fiber {
     stack: KernelStack,
 }
 
-extern "C" fn fiber_entry<F: FnMut()>(arg0: usize, _: usize) -> ! {
-    let mut func = unsafe { Box::from_raw(arg0 as *mut F) };
-
-    (func)();
-
-    arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
-        LOCAL_SCHEDULER.get().force_reschedule();
-        LOCAL_SCHEDULER.get().commit_reschedule();
-    });
-}
-
 impl Fiber {
     pub fn run<F: FnMut()>(func: F) -> Arc<Self> {
+        extern "C" fn fiber_entry<F: FnMut() + Sized + PointeeSized>(arg0: usize, _: usize) -> ! {
+            let mut func = unsafe { Box::from_raw(arg0 as *mut F) };
+
+            (func)();
+
+            arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
+                LOCAL_SCHEDULER.get().force_reschedule();
+                LOCAL_SCHEDULER.get().commit_reschedule();
+            });
+        }
+
         let func = Box::into_raw(Box::new(func));
         let stack = KernelStack::new();
 

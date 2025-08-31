@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 
 use crate::{
     KernelError, KernelResult,
-    arch::memory::PAGE_SIZE,
+    arch::{image::SyscallRegisterImage, memory::PAGE_SIZE},
     memory::{
         CachingMode, PageAccess,
         client::MapFlags,
@@ -54,7 +54,11 @@ impl TryFrom<usize> for LogSeverity {
     }
 }
 
-pub fn hel_log(severity: usize, ptr: usize, length: usize) -> SyscallResult {
+pub fn hel_log(image: &impl SyscallRegisterImage) -> SyscallResult {
+    let severity = image.arg0();
+    let ptr = image.arg1();
+    let length = image.arg2();
+
     let _severity = LogSeverity::try_from(severity).map_err(|_| KernelError::IllegalArgs)?;
     let message = unsafe { core::str::from_raw_parts(ptr as *const u8, length) };
 
@@ -63,7 +67,11 @@ pub fn hel_log(severity: usize, ptr: usize, length: usize) -> SyscallResult {
     Ok(Default::default())
 }
 
-pub fn hel_allocate_memory(length: usize, flags: usize, _restrictions: usize) -> SyscallResult {
+pub fn hel_allocate_memory(image: &impl SyscallRegisterImage) -> SyscallResult {
+    let length = image.arg0();
+    let flags = image.arg1();
+    let _restrictions = image.arg2();
+
     ensure!(
         length > 0 && length.is_multiple_of(PAGE_SIZE),
         KernelError::IllegalArgs
@@ -92,14 +100,14 @@ pub fn hel_allocate_memory(length: usize, flags: usize, _restrictions: usize) ->
     Ok((handle.id(), 0))
 }
 
-pub fn hel_map_memory(
-    memory_handle: usize,
-    space_handle: usize,
-    address: usize,
-    offset: usize,
-    length: usize,
-    _flags: usize,
-) -> SyscallResult {
+pub fn hel_map_memory(image: &impl SyscallRegisterImage) -> SyscallResult {
+    let memory_handle = image.arg0();
+    let space_handle = image.arg1();
+    let address = image.arg2();
+    let offset = image.arg3();
+    let length = image.arg4();
+    let _flags = image.arg5();
+
     ensure!(
         length > 0 && length.is_multiple_of(PAGE_SIZE),
         KernelError::IllegalArgs
