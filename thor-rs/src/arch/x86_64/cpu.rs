@@ -8,7 +8,11 @@ use spin::Lazy;
 
 use crate::{
     KernelError,
-    arch::{asm, gdt::Gdt, idt::Idt},
+    arch::{
+        asm::{self, Msr},
+        gdt::Gdt,
+        idt::Idt,
+    },
     memory::stack::KernelStack,
     per_cpu::CpuData,
 };
@@ -55,28 +59,28 @@ impl ArchCpuData {
 
 pub fn init_early() {
     let cpu_data = get_cpu_data();
-    let gs_base = asm::rdmsr(asm::Msr::Ia32GsBase);
+    let gs_base = Msr::IA32_GS_BASE.read();
 
     unsafe {
         cpu_data.arch_data().gdt.borrow().load();
         IDT.load();
     }
 
-    asm::wrmsr(asm::Msr::Ia32GsBase, gs_base);
+    Msr::IA32_GS_BASE.write(gs_base);
 }
 
 pub fn init_cpu_features() {
-    let efer = asm::rdmsr(asm::Msr::Ia32Efer);
-    asm::wrmsr(asm::Msr::Ia32Efer, efer | (1 << 0)); // IA32_EFER.SCE
+    let efer = Msr::IA32_EFER.read();
+    Msr::IA32_EFER.write(efer | (1 << 0)); // IA32_EFER.SCE
 
-    asm::wrmsr(asm::Msr::Ia32Lstar, syscall_stub as *const () as u64);
-    asm::wrmsr(asm::Msr::Ia32Fmask, 0x200); // Disable interrupts on syscall entry
+    Msr::IA32_LSTAR.write(syscall_stub as *const () as u64);
+    Msr::IA32_FMASK.write(0x200); // Disable interrupts on syscall entry
 
-    let mut star = 0_u64;
+    let mut star = 0;
     star |= (Gdt::KERNEL_CODE64_SELECTOR as u64) << 32;
     star |= (Gdt::USER_DATA64_SELECTOR as u64 - 8) << 48;
 
-    asm::wrmsr(asm::Msr::Ia32Star, star);
+    Msr::IA32_STAR.write(star);
 }
 
 pub fn setup_cpu_context(cpu_data: *const ArchCpuData) {
@@ -88,7 +92,7 @@ pub fn setup_cpu_context(cpu_data: *const ArchCpuData) {
             .store(cpu_data as *mut _, Ordering::Relaxed);
     }
 
-    asm::wrmsr(asm::Msr::Ia32GsBase, cpu_data as usize as u64);
+    Msr::IA32_GS_BASE.write(cpu_data as usize as u64);
 }
 
 pub fn get_cpu_data() -> &'static CpuData {
