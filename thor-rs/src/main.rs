@@ -185,11 +185,16 @@ fn init_fiber() {
 
     let space = ClientPageSpace::new();
 
-    let (ip, sp) = scheduler::async_block(&this_fiber, async {
-        let memory = Arc::new(ImmediateMemory::new(freya_bytes.len()));
+    let (ip, sp, initrd_address) = scheduler::async_block(&this_fiber, async {
+        let initrd_len = (initrd.len() + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
+        let initrd_memory = Arc::new(ImmediateMemory::new(initrd_len));
+
+        initrd_memory.copy_to(0, initrd).await.unwrap();
+
+        let elf_memory = Arc::new(ImmediateMemory::new(freya_bytes.len()));
         let stack_memory = Arc::new(ImmediateMemory::new(0x10000));
 
-        memory.copy_to(0, freya_bytes).await.unwrap();
+        elf_memory.copy_to(0, freya_bytes).await.unwrap();
 
         let freya_elf = goblin::elf::Elf::parse(freya_bytes).expect("Failed to parse freya ELF");
 
@@ -204,7 +209,7 @@ fn init_fiber() {
             let length =
                 (phdr.p_memsz as usize + misalign as usize + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
 
-            let view = MemorySlice::new(memory.clone(), offset, length, CachingMode::Null);
+            let view = MemorySlice::new(elf_memory.clone(), offset, length, CachingMode::Null);
             let mut access = PageAccess::empty();
 
             if phdr.p_flags & goblin::elf::program_header::PF_R != 0 {
@@ -244,11 +249,28 @@ fn init_fiber() {
             .await
             .unwrap();
 
-        (freya_elf.entry, sp + 0x10000)
+        let initrd_address = space
+            .map(
+                MemorySlice::new(initrd_memory, 0, initrd_len, CachingMode::Null),
+                None,
+                0,
+                initrd_len,
+                MapFlags::PREFER_TOP,
+                PageAccess::READ,
+            )
+            .await
+            .unwrap();
+
+        (freya_elf.entry, sp + 0x10000, initrd_address)
     });
 
     scheduler.schedule(Thread::new(
-        ArchExecutor::new_user_context(ip as usize, sp as usize, 0, 0),
+        ArchExecutor::new_user_context(
+            ip as usize,
+            sp as usize,
+            initrd_address as usize,
+            initrd.len(),
+        ),
         space,
     ));
 }

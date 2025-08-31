@@ -1,5 +1,6 @@
 pub mod accessor;
 pub mod client;
+pub mod cow;
 pub mod cursor;
 pub mod heap;
 pub mod kernel;
@@ -33,13 +34,15 @@ static ALLOCATOR: KernelAllocator = KernelAllocator {
 };
 
 struct KernelAllocatorState {
-    tlsf: Tlsf<'static, u16, u16, 12, 16>,
+    tlsf: Tlsf<'static, u16, u16, 16, 16>,
 }
 
 impl KernelAllocatorState {
-    const HEAP_BLOCK_SIZE: usize = 2 << 21; // 2MiB
+    const HEAP_BLOCK_SIZE: usize = 4 << 20;
 
     fn alloc(&mut self, layout: Layout) -> *mut u8 {
+        assert!(layout.size() < Self::HEAP_BLOCK_SIZE);
+
         if let Some(ptr) = self.tlsf.allocate(layout) {
             return ptr.as_ptr();
         }

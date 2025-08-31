@@ -5,4 +5,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cpio_reader = "0.1.2"
 hel = { path = "../hel", features = ["global_alloc", "hel_writer", "no_std"] }
+hel-sys = { path = "../hel-sys" }
+spin = "0.10.0"

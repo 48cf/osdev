@@ -310,14 +310,16 @@ impl VirtualSpace for ClientPageSpace {
         access: super::PageAccess,
         caching: super::CachingMode,
     ) -> Result<()> {
-        memory_view.fault_in(offset).await?;
+        memory_view.fault_in(offset, access).await?;
 
-        let &(physical_address, caching_mode) = memory_view
+        let &(physical_address, caching_mode, kind) = memory_view
             .base()
             .contents()
             .await
             .get(&(offset / PAGE_SIZE))
             .ok_or(Error::Fault)?;
+
+        assert!(kind.is_compatible(access));
 
         let mut cursor = self.cursor(virtual_address);
 

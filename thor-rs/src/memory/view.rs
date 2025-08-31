@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use crate::{
     Error, Result,
     arch::memory::PAGE_SIZE,
-    memory::{self, CachingMode, accessor::PageAccessor},
+    memory::{self, CachingMode, PageAccess, accessor::PageAccessor},
 };
 
 #[derive(Clone)]
@@ -52,7 +52,7 @@ impl MemorySlice {
 pub trait MemoryView: Sync + Send {
     fn base(&self) -> &MemoryViewBase;
 
-    async fn fault_in(&self, offset: usize) -> Result<()>;
+    async fn fault_in(&self, offset: usize, access: PageAccess) -> Result<()>;
 
     async fn copy_to(&self, offset: usize, buffer: &[u8]) -> Result<()> {
         let mut progress = 0;
@@ -60,15 +60,17 @@ pub trait MemoryView: Sync + Send {
         while progress < buffer.len() {
             let offset = offset + progress;
 
-            self.fault_in(offset).await?;
+            self.fault_in(offset, PageAccess::WRITE).await?;
 
-            let (physical_address, _) = self
+            let (physical_address, _, kind) = self
                 .base()
                 .contents()
                 .await
                 .get(&(offset / PAGE_SIZE))
                 .copied()
                 .ok_or(Error::Fault)?;
+
+            assert!(kind.is_compatible(PageAccess::WRITE));
 
             let accessor = PageAccessor::new(physical_address);
             let page_offset = offset & (PAGE_SIZE - 1);
@@ -93,9 +95,9 @@ pub trait MemoryView: Sync + Send {
         while progress < buffer.len() {
             let offset = offset + progress;
 
-            self.fault_in(offset).await?;
+            self.fault_in(offset, PageAccess::READ).await?;
 
-            let (physical_address, _) = self
+            let (physical_address, _, _) = self
                 .base()
                 .contents()
                 .await
@@ -121,7 +123,27 @@ pub trait MemoryView: Sync + Send {
     }
 }
 
-type MemoryViewContents = HashMap<usize, (u64, CachingMode)>;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MemoryViewPageKind {
+    /// Page is borrowed from another view, it cannot be faulted in for write operations.
+    Borrowed,
+    /// Page is owned by this view, it can be faulted in for write operations.
+    Owned,
+}
+
+impl MemoryViewPageKind {
+    pub fn is_compatible(self, access: PageAccess) -> bool {
+        // If the access includes write, the page must be owned.
+        // In any other case it can be either owned or borrowed.
+        if access.contains(PageAccess::WRITE) {
+            self == MemoryViewPageKind::Owned
+        } else {
+            true
+        }
+    }
+}
+
+type MemoryViewContents = HashMap<usize, (u64, CachingMode, MemoryViewPageKind)>;
 
 pub struct MemoryViewBase {
     contents: async_lock::RwLock<MemoryViewContents>,
@@ -162,9 +184,10 @@ impl ImmediateMemory {
                 accessor.as_mut::<u8>().write_bytes(0, PAGE_SIZE);
             }
 
-            base.contents
-                .get_mut()
-                .insert(i, (physical_page, CachingMode::Null));
+            base.contents.get_mut().insert(
+                i,
+                (physical_page, CachingMode::Null, MemoryViewPageKind::Owned),
+            );
         }
 
         Self { base, page_count }
@@ -177,7 +200,7 @@ impl MemoryView for ImmediateMemory {
         &self.base
     }
 
-    async fn fault_in(&self, offset: usize) -> Result<()> {
+    async fn fault_in(&self, offset: usize, _access: PageAccess) -> Result<()> {
         // Fault in is a no-op for immediate memory.
         if offset / PAGE_SIZE >= self.page_count {
             Err(Error::Fault)
@@ -207,7 +230,7 @@ impl MemoryView for AllocatedMemory {
         &self.base
     }
 
-    async fn fault_in(&self, offset: usize) -> Result<()> {
+    async fn fault_in(&self, offset: usize, _access: PageAccess) -> Result<()> {
         let page_index = offset / PAGE_SIZE;
 
         if page_index >= self.page_count {
@@ -224,7 +247,10 @@ impl MemoryView for AllocatedMemory {
                 accessor.as_mut::<u8>().write_bytes(0, PAGE_SIZE);
             }
 
-            contents.insert(page_index, (physical_page, CachingMode::Null));
+            contents.insert(
+                page_index,
+                (physical_page, CachingMode::Null, MemoryViewPageKind::Owned),
+            );
         }
 
         Ok(())

@@ -112,14 +112,16 @@ pub async fn map_present_pages_with_cursor<P: CursorPolicy>(
     while cursor.address() < virtual_address + length as u64 {
         let offset = cursor.address() - virtual_address + offset as u64;
 
-        if let Some((physical_address, caching_mode)) =
+        if let Some((physical_address, caching_mode, page_kind)) =
             contents.get(&(offset as usize / PAGE_SIZE)).copied()
         {
-            cursor.map_page(
-                physical_address,
-                access,
-                caching_mode.override_with(caching),
-            );
+            if page_kind.is_compatible(access) {
+                cursor.map_page(
+                    physical_address,
+                    access,
+                    caching_mode.override_with(caching),
+                );
+            }
         }
 
         cursor.advance_page();
