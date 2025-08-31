@@ -1,5 +1,17 @@
-use crate::memory::{
-    self, CachingMode, PageAccess, PageStatus, accessor::PageAccessor, cursor::CursorPolicy,
+use core::{
+    arch::{asm, naked_asm},
+    mem::offset_of,
+};
+
+use crate::{
+    arch::{cpu::ArchCpuData, executor::ArchExecutor},
+    memory::{
+        self, CachingMode, PageAccess, PageStatus,
+        accessor::PageAccessor,
+        client::{UserAccessFlags, UserAccessRegion},
+        cursor::CursorPolicy,
+    },
+    scheduler::Executor,
 };
 
 pub const PAGE_SIZE: usize = 0x1000;
@@ -7,8 +19,16 @@ pub const PAGE_SHIFT: usize = 12;
 
 pub fn activate_page_table(root_table: u64) {
     unsafe {
-        core::arch::asm!("mov cr3, {}", in(reg) root_table);
+        asm!("mov cr3, {}", in(reg) root_table);
     }
+}
+
+pub fn copy_from_user(address: usize, buffer: &mut [u8]) -> bool {
+    do_copy_from_user(buffer.as_mut_ptr(), address as *const u8, buffer.len())
+}
+
+pub fn copy_to_user(address: usize, buffer: &[u8]) -> bool {
+    do_copy_to_user(address as *mut u8, buffer.as_ptr(), buffer.len())
 }
 
 pub struct ArchCursorPolicy<const KERNEL: bool>;
@@ -131,3 +151,75 @@ impl<const KERNEL: bool> CursorPolicy for ArchCursorPolicy<KERNEL> {
 
 pub type KernelCursorPolicy = ArchCursorPolicy<true>;
 pub type UserCursorPolicy = ArchCursorPolicy<false>;
+
+#[unsafe(naked)]
+extern "C" fn do_copy_from_user(dest: *mut u8, src: *const u8, len: usize) -> bool {
+    naked_asm!(
+        "mov rcx, rdx",
+        "mov r8, gs:[{active_executor}]",
+        "lea rax, [rip + 5f]",
+        "mov [r8 + {user_access_region}], rax",
+
+        "2:",
+        "rep movsb",
+
+        "3:",
+        "xor eax, eax",
+        "mov [r8 + {user_access_region}], rax",
+        "ret",
+
+        "4:",
+        "xor eax, eax",
+        "mov [r8 + {user_access_region}], rax",
+        "mov eax, 1",
+        "ret",
+
+        ".align {user_access_region_align}",
+        "5:",
+        ".quad 2b",
+        ".quad 3b",
+        ".quad 4b",
+        ".long {user_access_read}",
+
+        active_executor = const offset_of!(ArchCpuData, current_executor),
+        user_access_region = const offset_of!(ArchExecutor, user_access_region),
+        user_access_region_align = const align_of::<UserAccessRegion>(),
+        user_access_read = const UserAccessFlags::READ.bits(),
+    );
+}
+
+#[unsafe(naked)]
+extern "C" fn do_copy_to_user(dest: *mut u8, src: *const u8, len: usize) -> bool {
+    naked_asm!(
+        "mov rcx, rdx",
+        "mov r8, gs:[{active_executor}]",
+        "lea rax, [rip + 5f]",
+        "mov [r8 + {user_access_region}], rax",
+
+        "2:",
+        "rep movsb",
+
+        "3:",
+        "xor eax, eax",
+        "mov [r8 + {user_access_region}], rax",
+        "ret",
+
+        "4:",
+        "xor eax, eax",
+        "mov [r8 + {user_access_region}], rax",
+        "mov eax, 1",
+        "ret",
+
+        ".align {user_access_region_align}",
+        "5:",
+        ".quad 2b",
+        ".quad 3b",
+        ".quad 4b",
+        ".long {user_access_write}",
+
+        active_executor = const offset_of!(ArchCpuData, current_executor),
+        user_access_region = const offset_of!(ArchExecutor, user_access_region),
+        user_access_region_align = const align_of::<UserAccessRegion>(),
+        user_access_write = const UserAccessFlags::WRITE.bits(),
+    );
+}

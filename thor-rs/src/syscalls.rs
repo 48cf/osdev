@@ -8,6 +8,7 @@ use crate::{
     memory::{
         CachingMode, PageAccess,
         client::MapFlags,
+        user::copy_from_user,
         view::{AllocatedMemory, ImmediateMemory, MemorySlice, MemoryView},
     },
     scheduler::{self, LOCAL_SCHEDULER},
@@ -70,12 +71,27 @@ pub fn hel_log(image: &impl SyscallRegisterImage) -> SyscallResult {
 pub fn hel_allocate_memory(image: &impl SyscallRegisterImage) -> SyscallResult {
     let length = image.arg0();
     let flags = image.arg1();
-    let _restrictions = image.arg2();
+    let restrictions_addr = image.arg2();
 
     ensure!(
         length > 0 && length.is_multiple_of(PAGE_SIZE),
         KernelError::IllegalArgs
     );
+
+    let address_bits = if restrictions_addr != 0 {
+        let mut restrictions: hel_sys::HelAllocRestrictions = unsafe { core::mem::zeroed() };
+
+        copy_from_user(restrictions_addr, unsafe {
+            core::slice::from_raw_parts_mut(
+                &raw mut restrictions as *mut u8,
+                size_of::<hel_sys::HelAllocRestrictions>(),
+            )
+        })?;
+
+        restrictions.addressBits as usize
+    } else {
+        64
+    };
 
     let thread = LOCAL_SCHEDULER
         .get()
@@ -86,9 +102,9 @@ pub fn hel_allocate_memory(image: &impl SyscallRegisterImage) -> SyscallResult {
     let memory: Arc<dyn MemoryView> = if flags & hel_sys::kHelAllocContinuous as usize != 0 {
         assert!(flags & hel_sys::kHelAllocOnDemand as usize != 0);
 
-        AllocatedMemory::new_contiguous(length)
+        AllocatedMemory::new_contiguous(length, address_bits)
     } else if flags & hel_sys::kHelAllocOnDemand as usize != 0 {
-        AllocatedMemory::new(length)
+        AllocatedMemory::new(length, address_bits)
     } else {
         ImmediateMemory::new(length)
     };

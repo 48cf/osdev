@@ -14,7 +14,8 @@ use alloc::{collections::vec_deque::VecDeque, sync::Arc, task::Wake};
 use spin::Mutex;
 
 use crate::{
-    KernelResult, arch::interrupts::ArchInterruptFrame, scheduler::idle::GLOBAL_IDLE_TASK,
+    KernelResult, arch::interrupts::ArchInterruptFrame, memory::client::UserAccessRegion,
+    scheduler::idle::GLOBAL_IDLE_TASK,
 };
 
 static THREAD_ID_ALLOCATOR: AtomicU64 = AtomicU64::new(1);
@@ -125,6 +126,8 @@ impl Scheduler {
 }
 
 pub trait Executor {
+    fn user_access_region(&self) -> Option<&UserAccessRegion>;
+
     fn save(&mut self, frame: &ArchInterruptFrame);
     fn restore(&self) -> !;
 

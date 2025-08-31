@@ -35,7 +35,8 @@ use crate::{
         kernel::KERNEL_PAGE_SPACE,
         view::{AllocatedMemory, ImmediateMemory, MemorySlice, MemoryView},
     },
-    scheduler::{Fiber, LOCAL_SCHEDULER, Thread},
+    per_cpu::CPU_DATA,
+    scheduler::{Executor, Fiber, LOCAL_SCHEDULER, Thread},
 };
 
 #[macro_export]
@@ -65,25 +66,46 @@ extern "C" fn kernel_main() -> ! {
     scheduler.commit_reschedule();
 }
 
-pub fn handle_fault(image: &impl FaultRegisterImage) {
-    if image.fault_kind() == FaultKind::PageFault && image.domain() == ImageDomain::User {
-        let thread = LOCAL_SCHEDULER
-            .get()
-            .current()
-            .as_thread()
-            .expect("No current thread");
+fn handle_page_fault(image: &mut impl FaultRegisterImage) {
+    // TODO: Check SMAP before continuing.
 
-        if scheduler::async_block(
-            &thread,
-            thread.space().handle_page_fault(
-                image.fault_address() as u64,
-                image.error_code().into_page_access(),
-            ),
-        )
-        .is_ok()
-        {
-            return;
+    let fault_access = image.error_code().into_page_access();
+    let thread = LOCAL_SCHEDULER
+        .get()
+        .current()
+        .as_thread()
+        .expect("No current thread");
+
+    if let Ok(()) = scheduler::async_block(
+        &thread,
+        thread.space().handle_page_fault(
+            image.fault_address() as u64,
+            image.error_code().into_page_access(),
+        ),
+    ) {
+        return;
+    }
+
+    if !image.error_code().is_user() {
+        if let Some(user_access) = unsafe {
+            CPU_DATA
+                .get()
+                .arch_data()
+                .current_executor()
+                .and_then(|executor| executor.user_access_region())
+        } {
+            if user_access.contains_address(image.ip())
+                && user_access.flags().to_page_access().contains(fault_access)
+            {
+                image.set_ip(user_access.fault_handler());
+            }
         }
+    }
+}
+
+pub fn handle_fault(image: &mut impl FaultRegisterImage) {
+    if image.fault_kind() == FaultKind::PageFault {
+        return handle_page_fault(image);
     }
 
     if image.fault_kind() == FaultKind::Breakpoint && image.domain() == ImageDomain::User {
@@ -209,7 +231,7 @@ fn init_fiber() {
         initrd_memory.copy_to(0, initrd).await?;
 
         let elf_memory = ImmediateMemory::new(freya_bytes.len());
-        let stack_memory = AllocatedMemory::new(0x10000);
+        let stack_memory = AllocatedMemory::new(0x10000, 64);
 
         elf_memory.copy_to(0, freya_bytes).await?;
 

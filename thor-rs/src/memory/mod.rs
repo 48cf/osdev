@@ -7,6 +7,7 @@ pub mod kernel;
 pub mod page;
 pub mod space;
 pub mod stack;
+pub mod user;
 pub mod view;
 
 use core::{

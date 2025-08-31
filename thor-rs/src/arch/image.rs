@@ -24,6 +24,7 @@ pub trait IrqRegisterImage: RegisterImage {
 }
 
 pub trait FaultErrorCode: Copy {
+    fn is_user(&self) -> bool;
     fn into_page_access(self) -> PageAccess;
 }
 

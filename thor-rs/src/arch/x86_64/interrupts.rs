@@ -31,6 +31,10 @@ pub fn setup_idt(idt: &mut Idt) {
 pub struct ErrorCode(pub usize);
 
 impl FaultErrorCode for ErrorCode {
+    fn is_user(&self) -> bool {
+        self.0 & (1 << 2) != 0
+    }
+
     fn into_page_access(self) -> PageAccess {
         if self.0 & (1 << 1) != 0 {
             PageAccess::WRITE

@@ -17,6 +17,12 @@ use crate::{
 };
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct UserAccessFlags: u32 {
+        const READ = 1 << 0;
+        const WRITE = 1 << 1;
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct MapFlags: u32 {
         const FIXED = 1 << 0;
@@ -24,6 +30,44 @@ bitflags! {
         const PREFER_TOP = 1 << 2;
         const DONT_REQUIRE_BACKING = 1 << 10;
         const FIXED_NO_REPLACE = 1 << 11;
+    }
+}
+
+impl UserAccessFlags {
+    pub fn to_page_access(self) -> PageAccess {
+        let mut access = PageAccess::empty();
+
+        if self.contains(UserAccessFlags::READ) {
+            access |= PageAccess::READ;
+        }
+        if self.contains(UserAccessFlags::WRITE) {
+            access |= PageAccess::WRITE;
+        }
+
+        access
+    }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct UserAccessRegion {
+    start_ip: usize,
+    end_ip: usize,
+    fault_ip: usize,
+    flags: UserAccessFlags,
+}
+
+impl UserAccessRegion {
+    pub fn contains_address(&self, address: usize) -> bool {
+        address >= self.start_ip && address < self.end_ip
+    }
+
+    pub fn fault_handler(&self) -> usize {
+        self.fault_ip
+    }
+
+    pub fn flags(&self) -> UserAccessFlags {
+        self.flags
     }
 }
 

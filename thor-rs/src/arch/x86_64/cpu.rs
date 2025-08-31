@@ -9,6 +9,7 @@ use spin::Lazy;
 use crate::{
     arch::{
         asm::Msr,
+        executor::ArchExecutor,
         gdt::Gdt,
         idt::Idt,
         image::{ImageDomain, RegisterImage, SyscallRegisterImage},
@@ -30,6 +31,8 @@ pub struct ArchCpuData {
     self_ptr: AtomicPtr<ArchCpuData>,
     syscall_stack_ptr: AtomicUsize,
 
+    pub(super) current_executor: AtomicPtr<ArchExecutor>,
+
     // TODO: Not make those public
     pub gdt: RefCell<Gdt>,
     pub kernel_stack: KernelStack,
@@ -44,10 +47,21 @@ impl ArchCpuData {
 
         Self {
             self_ptr: AtomicPtr::new(core::ptr::null_mut()),
+            current_executor: AtomicPtr::new(core::ptr::null_mut()),
             syscall_stack_ptr: AtomicUsize::new(0),
 
             gdt: RefCell::new(Gdt::new()),
             kernel_stack,
+        }
+    }
+
+    pub unsafe fn current_executor(&self) -> Option<&ArchExecutor> {
+        let ptr = self.current_executor.load(Ordering::Relaxed);
+
+        if !ptr.is_null() {
+            Some(unsafe { &*ptr })
+        } else {
+            None
         }
     }
 

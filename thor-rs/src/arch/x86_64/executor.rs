@@ -2,11 +2,12 @@ use core::{
     arch::naked_asm,
     marker::PointeeSized,
     mem::{MaybeUninit, offset_of},
+    sync::atomic::AtomicPtr,
 };
 
 use crate::{
-    arch::{gdt::Gdt, interrupts::ArchInterruptFrame},
-    memory::stack::KernelStack,
+    arch::{cpu::ArchCpuData, gdt::Gdt, interrupts::ArchInterruptFrame},
+    memory::{client::UserAccessRegion, stack::KernelStack},
     scheduler::Executor,
 };
 
@@ -34,10 +35,12 @@ pub struct GeneralRegisters {
     ss: usize,
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub struct ArchExecutor {
     general: GeneralRegisters,
     // fp_state: *mut u8,
+    pub(super) user_access_region: AtomicPtr<UserAccessRegion>,
 }
 
 impl ArchExecutor {
@@ -65,6 +68,7 @@ impl ArchExecutor {
                 rsp: 0,
                 ss: Gdt::KERNEL_DATA64_SELECTOR as usize,
             },
+            user_access_region: AtomicPtr::new(core::ptr::null_mut()),
             // fp_state: core::ptr::null_mut(),
         }
     }
@@ -85,6 +89,18 @@ impl ArchExecutor {
 }
 
 impl Executor for ArchExecutor {
+    fn user_access_region(&self) -> Option<&UserAccessRegion> {
+        let ptr = self
+            .user_access_region
+            .load(core::sync::atomic::Ordering::Relaxed);
+
+        if !ptr.is_null() {
+            Some(unsafe { &*ptr })
+        } else {
+            None
+        }
+    }
+
     fn save(&mut self, frame: &ArchInterruptFrame) {
         self.general.rax = frame.rax as usize;
         self.general.rbx = frame.rbx as usize;
@@ -109,7 +125,7 @@ impl Executor for ArchExecutor {
     }
 
     fn restore(&self) -> ! {
-        load_executor(&self.general);
+        load_executor(self);
     }
 
     fn ip(&mut self) -> &mut usize {
@@ -228,8 +244,10 @@ extern "C" fn save_executor(general: *mut GeneralRegisters) {
 }
 
 #[unsafe(naked)]
-extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
+extern "C" fn load_executor(general: *const ArchExecutor) -> ! {
     naked_asm!(
+        "mov gs:[{active_executor}], rdi",
+
         "mov rax, [rdi + {rax}]",
         "mov rbx, [rdi + {rbx}]",
         "mov rcx, [rdi + {rcx}]",
@@ -259,26 +277,28 @@ extern "C" fn load_executor(general: *const GeneralRegisters) -> ! {
         "mov rdi, [rdi + {rdi}]",
         "iretq",
 
-        rax = const offset_of!(GeneralRegisters, rax),
-        rbx = const offset_of!(GeneralRegisters, rbx),
-        rcx = const offset_of!(GeneralRegisters, rcx),
-        rdx = const offset_of!(GeneralRegisters, rdx),
-        rsi = const offset_of!(GeneralRegisters, rsi),
-        rdi = const offset_of!(GeneralRegisters, rdi),
-        rbp = const offset_of!(GeneralRegisters, rbp),
-        r8 = const offset_of!(GeneralRegisters, r8),
-        r9 = const offset_of!(GeneralRegisters, r9),
-        r10 = const offset_of!(GeneralRegisters, r10),
-        r11 = const offset_of!(GeneralRegisters, r11),
-        r12 = const offset_of!(GeneralRegisters, r12),
-        r13 = const offset_of!(GeneralRegisters, r13),
-        r14 = const offset_of!(GeneralRegisters, r14),
-        r15 = const offset_of!(GeneralRegisters, r15),
-        rip = const offset_of!(GeneralRegisters, rip),
-        cs = const offset_of!(GeneralRegisters, cs),
-        rflags = const offset_of!(GeneralRegisters, rflags),
-        rsp = const offset_of!(GeneralRegisters, rsp),
-        ss = const offset_of!(GeneralRegisters, ss),
+        active_executor = const offset_of!(ArchCpuData, current_executor),
+
+        rax = const offset_of!(ArchExecutor, general.rax),
+        rbx = const offset_of!(ArchExecutor, general.rbx),
+        rcx = const offset_of!(ArchExecutor, general.rcx),
+        rdx = const offset_of!(ArchExecutor, general.rdx),
+        rsi = const offset_of!(ArchExecutor, general.rsi),
+        rdi = const offset_of!(ArchExecutor, general.rdi),
+        rbp = const offset_of!(ArchExecutor, general.rbp),
+        r8 = const offset_of!(ArchExecutor, general.r8),
+        r9 = const offset_of!(ArchExecutor, general.r9),
+        r10 = const offset_of!(ArchExecutor, general.r10),
+        r11 = const offset_of!(ArchExecutor, general.r11),
+        r12 = const offset_of!(ArchExecutor, general.r12),
+        r13 = const offset_of!(ArchExecutor, general.r13),
+        r14 = const offset_of!(ArchExecutor, general.r14),
+        r15 = const offset_of!(ArchExecutor, general.r15),
+        rip = const offset_of!(ArchExecutor, general.rip),
+        cs = const offset_of!(ArchExecutor, general.cs),
+        rflags = const offset_of!(ArchExecutor, general.rflags),
+        rsp = const offset_of!(ArchExecutor, general.rsp),
+        ss = const offset_of!(ArchExecutor, general.ss),
 
         kernel_cs = const Gdt::KERNEL_CODE64_SELECTOR as u16,
     );
