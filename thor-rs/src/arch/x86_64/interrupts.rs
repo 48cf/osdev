@@ -3,7 +3,7 @@ use core::mem::offset_of;
 use crate::{
     arch::{
         gdt::Gdt,
-        idt::Idt,
+        idt::{Idt, IdtEntry},
         image::{
             FaultErrorCode, FaultKind, FaultRegisterImage, ImageDomain, IrqRegisterImage,
             RegisterImage,
@@ -15,7 +15,13 @@ use crate::{
 pub fn setup_idt(idt: &mut Idt) {
     seq_macro::seq! {
         N in 0..256 {
-            idt.set_handler(N, kernel_interrupt_stub_~N, Gdt::KERNEL_CODE64_SELECTOR, 0, 0x8E);
+            let flags = if N == 3 {
+                IdtEntry::PRESENT | IdtEntry::DPL3 | IdtEntry::TRAP_GATE
+            } else {
+                IdtEntry::PRESENT | IdtEntry::INTERRUPT_GATE
+            };
+
+            idt.set_handler(N, kernel_interrupt_stub_~N, Gdt::KERNEL_CODE64_SELECTOR, 0, flags);
         }
     }
 }

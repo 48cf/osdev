@@ -16,7 +16,7 @@ extern "C" fn _start(initrd_address: usize, initrd_size: usize) -> ! {
 
     vfs::unpack_initrd(initrd_bytes);
 
-    let _mbus = vfs::lookup("/usr/bin/mbus").expect("freya: /usr/bin/mbus not found");
+    let _mbus_file = vfs::lookup("/usr/bin/mbus").expect("freya: /usr/bin/mbus not found");
     let executor = hel::executor::Executor::new().expect("freya: Failed to create executor");
 
     executor.block_on(async { loop {} }).unwrap();

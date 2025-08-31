@@ -65,29 +65,39 @@ extern "C" fn kernel_main() -> ! {
     scheduler.commit_reschedule();
 }
 
-pub fn handle_page_fault(image: &impl FaultRegisterImage) -> bool {
-    let thread = LOCAL_SCHEDULER
-        .get()
-        .current()
-        .as_thread()
-        .expect("No current thread");
-
-    scheduler::async_block(
-        &thread,
-        thread.space().handle_page_fault(
-            image.fault_address() as u64,
-            image.error_code().into_page_access(),
-        ),
-    )
-    .is_ok()
-}
-
 pub fn handle_fault(image: &impl FaultRegisterImage) {
-    assert!(image.fault_kind() == FaultKind::PageFault);
+    if image.fault_kind() == FaultKind::PageFault && image.domain() == ImageDomain::User {
+        let thread = LOCAL_SCHEDULER
+            .get()
+            .current()
+            .as_thread()
+            .expect("No current thread");
 
-    if image.domain() == ImageDomain::User && handle_page_fault(image) {
+        if scheduler::async_block(
+            &thread,
+            thread.space().handle_page_fault(
+                image.fault_address() as u64,
+                image.error_code().into_page_access(),
+            ),
+        )
+        .is_ok()
+        {
+            return;
+        }
+    }
+
+    if image.fault_kind() == FaultKind::Breakpoint && image.domain() == ImageDomain::User {
+        let thread = LOCAL_SCHEDULER
+            .get()
+            .current()
+            .as_thread()
+            .expect("No current thread");
+
+        println!("thor: Breakpoint in user thread {}", thread.tid());
         return;
     }
+
+    println!("thor: Unexpected fault: {:?}", image.fault_kind());
 
     image.dump_registers();
 

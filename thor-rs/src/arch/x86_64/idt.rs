@@ -62,6 +62,12 @@ pub struct IdtEntry {
 }
 
 impl IdtEntry {
+    pub const PRESENT: u8 = 1 << 7;
+    pub const DPL3: u8 = 3 << 5;
+    pub const CALL_GATE: u8 = 0b1100;
+    pub const INTERRUPT_GATE: u8 = 0b1110;
+    pub const TRAP_GATE: u8 = 0b1111;
+
     const fn empty() -> Self {
         Self {
             offset_low: 0,

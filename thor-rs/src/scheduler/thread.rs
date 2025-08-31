@@ -43,6 +43,10 @@ impl Thread {
         })
     }
 
+    pub fn tid(&self) -> u64 {
+        self.tid.load(Ordering::Relaxed)
+    }
+
     pub fn space(&self) -> &Arc<ClientPageSpace> {
         &self.space
     }
