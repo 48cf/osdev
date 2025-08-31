@@ -73,6 +73,8 @@ pub fn unpack_initrd(initrd: &[u8]) {
                 length: entry.file().len(),
             }));
 
+            // TODO: Write the file contents to the memory view.
+
             directory.entries.lock().insert(name, new_file);
         } else {
             panic!("freya: Unknown file type in initrd");
