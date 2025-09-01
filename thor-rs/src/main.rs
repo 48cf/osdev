@@ -183,7 +183,7 @@ pub fn handle_syscall(image: &mut impl SyscallRegisterImage) {
     }
 }
 
-fn init_fiber() {
+fn init_fiber(fiber: Arc<Fiber>) {
     let memory_layout = MEMORY_LAYOUT_NOTE.get();
     let eir_info = unsafe {
         NonNull::new(memory_layout.eir_info() as *mut EirInfo)
@@ -215,8 +215,6 @@ fn init_fiber() {
     };
 
     let scheduler = LOCAL_SCHEDULER.get();
-    let this_fiber = scheduler.current().as_fiber().expect("No current fiber");
-
     let freya_bytes = cpio_reader::iter_files(initrd)
         .find(|entry| entry.name() == "freya")
         .map(|entry| entry.file())
@@ -224,7 +222,7 @@ fn init_fiber() {
 
     let space = ClientPageSpace::new();
 
-    let (ip, sp, initrd_address) = scheduler::async_block(&this_fiber, async {
+    let (ip, sp, initrd_address) = scheduler::async_block(&fiber, async {
         let initrd_len = initrd.len().next_multiple_of(PAGE_SIZE);
         let initrd_memory = ImmediateMemory::new(initrd_len);
 

@@ -3,7 +3,10 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{
+    boxed::Box,
+    sync::{Arc, Weak},
+};
 use spin::Mutex;
 
 use crate::{
@@ -26,11 +29,15 @@ pub struct Fiber {
 }
 
 impl Fiber {
-    pub fn run<F: FnMut()>(func: F) -> Arc<Self> {
-        extern "C" fn fiber_entry<F: FnMut() + Sized + PointeeSized>(arg0: usize, _: usize) -> ! {
+    pub fn run<F: FnMut(Arc<Fiber>)>(func: F) -> Arc<Self> {
+        extern "C" fn fiber_entry<F: FnMut(Arc<Fiber>) + Sized + PointeeSized>(
+            arg0: usize,
+            arg1: usize,
+        ) -> ! {
+            let fiber = unsafe { Weak::from_raw(arg1 as *const Fiber).upgrade().unwrap() };
             let mut func = unsafe { Box::from_raw(arg0 as *mut F) };
 
-            (func)();
+            (func)(fiber);
 
             arch::executor::run_on_stack(CPU_DATA.get().detached_stack(), |_sp| {
                 LOCAL_SCHEDULER.get().force_reschedule();
@@ -41,16 +48,19 @@ impl Fiber {
         let func = Box::into_raw(Box::new(func));
         let stack = KernelStack::new();
 
-        let mut executor = ArchExecutor::new();
+        Arc::new_cyclic(|weak| {
+            let mut executor = ArchExecutor::new();
 
-        *executor.ip() = fiber_entry::<F> as usize;
-        *executor.sp() = stack.top() as usize;
-        *executor.arg0() = func as usize;
+            *executor.ip() = fiber_entry::<F> as usize;
+            *executor.sp() = stack.top() as usize;
+            *executor.arg0() = func as usize;
+            *executor.arg1() = Weak::into_raw(weak.clone()) as usize;
 
-        Arc::new(Self {
-            block_token: AtomicU64::new(0),
-            inner: Mutex::new(FiberInner { executor }),
-            stack,
+            Self {
+                block_token: AtomicU64::new(0),
+                inner: Mutex::new(FiberInner { executor }),
+                stack,
+            }
         })
     }
 }
