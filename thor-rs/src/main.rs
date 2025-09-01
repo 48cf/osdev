@@ -19,6 +19,8 @@ mod universe;
 
 use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
 
+use alloc::sync::Arc;
+
 use crate::{
     arch::{
         executor::ArchExecutor,
