@@ -49,6 +49,16 @@ pub fn halt() {
     }
 }
 
+pub fn interrupts_enabled() -> bool {
+    let mut flags: u64;
+
+    unsafe {
+        core::arch::asm!("pushfq", "pop {}", out(reg) flags);
+    }
+
+    flags & (1 << 9) != 0
+}
+
 pub fn enable_interrupts() {
     unsafe {
         core::arch::asm!("sti");

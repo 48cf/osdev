@@ -15,6 +15,7 @@ mod memory;
 mod per_cpu;
 mod scheduler;
 mod syscalls;
+mod timer;
 mod universe;
 
 use core::{num::NonZeroU64, panic::PanicInfo, ptr::NonNull};
@@ -143,6 +144,7 @@ pub fn handle_syscall(image: &mut impl SyscallRegisterImage) {
         hel_sys::kHelCallLog => syscalls::hel_log(image),
         hel_sys::kHelCallAllocateMemory => syscalls::hel_allocate_memory(image),
         hel_sys::kHelCallMapMemory => syscalls::hel_map_memory(image),
+        hel_sys::kHelCallCopyOnWrite => syscalls::hel_copy_on_write(image),
         _ => {
             println!("thor: Unknown syscall number: {}", image.syscall_number());
 

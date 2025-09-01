@@ -64,7 +64,7 @@ impl ArchExecutor {
                 r15: 0,
                 rip: 0,
                 cs: Gdt::KERNEL_CODE64_SELECTOR as usize,
-                rflags: 0x2, // Enable interrupts
+                rflags: 0x202, // Enable interrupts
                 rsp: 0,
                 ss: Gdt::KERNEL_DATA64_SELECTOR as usize,
             },
@@ -80,7 +80,7 @@ impl ArchExecutor {
         executor.general.rsp = sp;
         executor.general.rdi = arg0;
         executor.general.rsi = arg1;
-        executor.general.rflags = 0x2; // Enable interrupts and set the reserved bit
+        executor.general.rflags = 0x202; // Enable interrupts and set the reserved bit
         executor.general.cs = Gdt::USER_CODE64_SELECTOR as usize;
         executor.general.ss = Gdt::USER_DATA64_SELECTOR as usize;
 

@@ -15,7 +15,7 @@ use spin::Mutex;
 
 use crate::{
     KernelResult, arch::interrupts::ArchInterruptFrame, memory::client::UserAccessRegion,
-    scheduler::idle::GLOBAL_IDLE_TASK,
+    scheduler::idle::GLOBAL_IDLE_TASK, timer,
 };
 
 static THREAD_ID_ALLOCATOR: AtomicU64 = AtomicU64::new(1);
@@ -114,6 +114,10 @@ impl Scheduler {
     }
 
     pub fn commit_reschedule(&self) -> ! {
+        timer::set_preemption_deadline(
+            timer::get_clock_nanos() + core::time::Duration::from_millis(10).as_nanos() as u64,
+        );
+
         let inner = self.inner.lock();
         let current = Arc::into_raw(inner.current.clone());
 

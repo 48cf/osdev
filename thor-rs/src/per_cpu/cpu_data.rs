@@ -1,15 +1,53 @@
 use core::mem::offset_of;
 
-use crate::{arch::cpu::ArchCpuData, memory::stack::KernelStack, per_cpu::PerCpu};
+use alloc::sync::Arc;
+use async_channel::Sender;
+use async_task::Runnable;
+
+use crate::{
+    arch::cpu::ArchCpuData,
+    memory::stack::KernelStack,
+    per_cpu::PerCpu,
+    scheduler::{self, Fiber},
+};
 
 #[unsafe(link_section = ".percpu.head")]
 pub static CPU_DATA: PerCpu<CpuData> = PerCpu::new();
+
+pub struct WorkQueue {
+    fiber: Arc<Fiber>,
+    queue: Sender<Runnable>,
+}
+
+impl WorkQueue {
+    pub fn new() -> Self {
+        let (tx, rx) = async_channel::unbounded::<Runnable>();
+        let fiber = Fiber::run(|fiber| {
+            let _ = scheduler::async_block::<_, _, !>(&fiber, async {
+                while let Ok(runnable) = rx.recv().await {
+                    runnable.run();
+                }
+
+                panic!("WorkQueue fiber exited unexpectedly");
+            });
+        });
+
+        Self { fiber, queue: tx }
+    }
+
+    pub fn submit(&self, runnable: Runnable) {
+        self.queue
+            .try_send(runnable)
+            .expect("WorkQueue channel is full");
+    }
+}
 
 pub struct CpuData {
     arch_data: ArchCpuData,
     cpu_id: u32,
     idle_stack: KernelStack,
     detached_stack: KernelStack,
+    work_queue: WorkQueue,
 }
 
 impl CpuData {
@@ -19,6 +57,7 @@ impl CpuData {
             cpu_id,
             idle_stack: KernelStack::new(),
             detached_stack: KernelStack::new(),
+            work_queue: WorkQueue::new(),
         }
     }
 
@@ -40,5 +79,9 @@ impl CpuData {
 
     pub fn detached_stack(&self) -> &KernelStack {
         &self.detached_stack
+    }
+
+    pub fn work_queue(&self) -> &WorkQueue {
+        &self.work_queue
     }
 }

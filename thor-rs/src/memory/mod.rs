@@ -1,6 +1,5 @@
 pub mod accessor;
 pub mod client;
-pub mod cow;
 pub mod cursor;
 pub mod heap;
 pub mod kernel;

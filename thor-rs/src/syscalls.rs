@@ -9,7 +9,10 @@ use crate::{
         CachingMode, PageAccess,
         client::MapFlags,
         user::copy_from_user,
-        view::{AllocatedMemory, ImmediateMemory, MemorySlice, MemoryView},
+        view::{
+            AllocatedMemory, CopyOnWriteMemory, ImmediateMemory, MemorySlice, MemoryView,
+            ZERO_MEMORY,
+        },
     },
     scheduler::{self, LOCAL_SCHEDULER},
     universe::{Descriptor, Handle},
@@ -164,4 +167,27 @@ pub fn hel_map_memory(image: &impl SyscallRegisterImage) -> SyscallResult {
             Ok((address as usize, 0))
         }
     }
+}
+
+pub fn hel_copy_on_write(image: &impl SyscallRegisterImage) -> SyscallResult {
+    assert_eq!(image.arg0(), hel_sys::kHelZeroMemory as isize as usize);
+
+    let offset = image.arg1();
+    let length = image.arg2();
+    let thread = LOCAL_SCHEDULER
+        .get()
+        .current()
+        .as_thread()
+        .expect("No current thread");
+
+    let descriptor =
+        thread
+            .universe()
+            .attach_descriptor(Descriptor::MemoryView(CopyOnWriteMemory::new(
+                ZERO_MEMORY.clone(),
+                offset,
+                length,
+            )));
+
+    Ok((descriptor.id(), 0))
 }

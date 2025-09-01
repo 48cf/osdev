@@ -1,6 +1,8 @@
 use core::num::NonZeroU64;
 
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
+use async_channel::Receiver;
+use async_lock::Barrier;
 use async_trait::async_trait;
 use bitflags::bitflags;
 use spin::Mutex;
@@ -12,8 +14,9 @@ use crate::{
         self, CachingMode, PageAccess,
         cursor::PageCursor,
         space::{PageSpace, VirtualSpace},
-        view::{MemorySlice, MemoryView},
+        view::{Eviction, MemorySlice, MemoryView},
     },
+    per_cpu::CPU_DATA,
 };
 
 bitflags! {
@@ -82,16 +85,30 @@ impl VirtualHole {
     }
 }
 
-struct VirtualMapping {
+struct Mapping {
     slice: Arc<MemorySlice>,
     length: usize,
     flags: MapFlags,
     access: PageAccess,
 }
 
+impl Mapping {
+    async fn handle_eviction(&self, rx: Receiver<(Eviction, Arc<Barrier>)>) {
+        loop {
+            crate::println!("Waiting for an eviction notice...");
+
+            if let Ok((eviction, _barrier)) = rx.recv().await {
+                crate::println!("Eviction: {:#?}", eviction);
+
+                // barrier.
+            }
+        }
+    }
+}
+
 struct ClientPageSpaceInner {
     holes: BTreeMap<u64, VirtualHole>,
-    mappings: BTreeMap<u64, VirtualMapping>,
+    mappings: BTreeMap<u64, Arc<Mapping>>,
 }
 
 impl ClientPageSpaceInner {
@@ -190,7 +207,7 @@ impl ClientPageSpaceInner {
         length: usize,
         flags: MapFlags,
         access: PageAccess,
-    ) -> KernelResult<u64> {
+    ) -> KernelResult<(u64, Arc<Mapping>)> {
         if let Some(address) = virtual_address {
             assert!(address.get() & (PAGE_SIZE as u64 - 1) == 0);
         }
@@ -222,17 +239,16 @@ impl ClientPageSpaceInner {
             }
         };
 
-        self.mappings.insert(
-            address,
-            VirtualMapping {
-                slice: slice.clone(),
-                length,
-                flags,
-                access,
-            },
-        );
+        let mapping = Arc::new(Mapping {
+            slice: slice.clone(),
+            length,
+            flags,
+            access,
+        });
 
-        Ok(address)
+        self.mappings.insert(address, mapping.clone());
+
+        Ok((address, mapping))
     }
 }
 
@@ -276,7 +292,7 @@ impl ClientPageSpace {
                 slice.view(),
                 address & !(PAGE_SIZE as u64 - 1),
                 slice.offset() + offset,
-                mapping.access,
+                fault_access,
                 slice.caching_mode(),
             )
             .await?;
@@ -302,7 +318,7 @@ impl ClientPageSpace {
             CachingMode::Null
         };
 
-        let address = self
+        let (address, mapping) = self
             .inner
             .lock()
             .map(
@@ -324,6 +340,20 @@ impl ClientPageSpace {
             caching_mode,
         )
         .await;
+
+        if slice.view().base().can_evict_memory() {
+            let (_, task) = async_task::spawn(
+                async move {
+                    let (tx, rx) = async_channel::unbounded();
+
+                    slice.view().base().add_eviction_observer(tx);
+                    mapping.handle_eviction(rx).await;
+                },
+                |runnable| CPU_DATA.get().work_queue().submit(runnable),
+            );
+
+            task.detach();
+        }
 
         Ok(address)
     }

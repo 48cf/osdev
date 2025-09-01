@@ -64,10 +64,10 @@ pub fn unpack_initrd(initrd: &[u8]) {
 
             let length = (entry.file().len() + 0xFFF) & !0xFFF;
             let result = unsafe {
-                hel_sys::helAllocateMemory(
+                hel_sys::helCopyOnWrite(
+                    hel_sys::kHelZeroMemory as hel_sys::HelHandle,
+                    0,
                     length,
-                    hel_sys::kHelAllocOnDemand | hel_sys::kHelAllocContinuous,
-                    core::ptr::null(),
                     &mut handle,
                 )
             };
