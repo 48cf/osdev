@@ -18,6 +18,9 @@ use crate::{
     scheduler::idle::GLOBAL_IDLE_TASK,
 };
 
+#[initgraph::task("generic.scheduling-available")]
+pub static SCHEDULING_AVAILABLE: () = || {};
+
 static THREAD_ID_ALLOCATOR: AtomicU64 = AtomicU64::new(1);
 
 crate::define_percpu! {

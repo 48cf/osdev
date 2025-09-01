@@ -20,7 +20,8 @@ pub struct EirModule {
 }
 
 #[repr(C)]
-#[derive(Debug)]pub struct EirFramebuffer {
+#[derive(Debug)]
+pub struct EirFramebuffer {
     pub address: EirPtr,
     pub early_window: EirPtr,
     pub pitch: EirSize,

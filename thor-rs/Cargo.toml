@@ -18,7 +18,9 @@ goblin = { version = "0.10.1", default-features = false, features = [
 ] }
 hashbrown = "0.16.0"
 hel-sys = { path = "../hel-sys" }
+initgraph = { path = "../crates/initgraph" }
 intrusive-collections = "0.9.7"
+raw-cpuid = { version = "11.5.0", default-features = false }
 rlsf = "0.2.1"
 seq-macro = "0.3.6"
 spin = "0.10.0"

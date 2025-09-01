@@ -33,6 +33,16 @@ SECTIONS
 
   . = ALIGN(CONSTANT(MAXPAGESIZE));
 
+  .init : {
+    LD_INIT_NODES_START = .;
+    *(.init.nodes .init.nodes.*)
+    LD_INIT_NODES_END = .;
+
+    LD_INIT_CTORS_START = .;
+    *(.init.ctors .init.ctors.*)
+    LD_INIT_CTORS_END = .;
+  } :data
+
   .data : {
     *(.data .data.*)
   } :data

@@ -296,3 +296,9 @@ extern "C" fn syscall_stub() {
         syscall_entry = sym syscall_entry,
     );
 }
+
+#[initgraph::task("arch.x86_64.init-bsp")]
+#[initgraph::depends(crate::arch::x86_64::lapic::DISCOVER_LAPIC)]
+static INIT_BSP: () = || {
+    
+};

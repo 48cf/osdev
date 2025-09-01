@@ -1,5 +1,6 @@
 #![allow(incomplete_features)]
 #![feature(associated_type_defaults)]
+#![feature(cfg_select)]
 #![feature(generic_const_exprs)]
 #![feature(never_type)]
 #![feature(sized_hierarchy)]
@@ -57,15 +58,27 @@ macro_rules! println {
 
 #[unsafe(no_mangle)]
 extern "C" fn kernel_main() -> ! {
-    println!("Kernel main reached");
 
-    per_cpu::init_for_boot_processor();
 
-    let scheduler = LOCAL_SCHEDULER.get();
+    println!("thor: Kernel main reached");
 
-    scheduler.schedule(Fiber::run(init_fiber));
-    scheduler.force_reschedule();
-    scheduler.commit_reschedule();
+    unsafe {
+        initgraph::register_edges();
+    }
+
+    initgraph::execute_graph(None, |node| {
+        println!("thor: Stage '{}' reached", node.name());
+    });
+
+    todo!()
+
+    // per_cpu::init_for_boot_processor();
+
+    // let scheduler = LOCAL_SCHEDULER.get();
+
+    // scheduler.schedule(Fiber::run(init_fiber));
+    // scheduler.force_reschedule();
+    // scheduler.commit_reschedule();
 }
 
 fn handle_page_fault(image: &mut impl FaultRegisterImage) {
@@ -314,7 +327,7 @@ fn init_fiber(fiber: Arc<Fiber>) {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("Oops: {}", info);
+    println!("thor: Oops: {}", info);
 
     loop {
         arch::halt();
